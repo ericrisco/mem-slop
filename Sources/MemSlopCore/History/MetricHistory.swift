@@ -51,6 +51,13 @@ public struct MetricHistory: Sendable {
     public init() {}
 
     public mutating func record(time: Date, cpu: Double, memory: Double, top: [GroupUsage]? = nil) {
+        // The clock went backwards (manual change, NTP jump): drop what now lies in the "future".
+        if let last = fine.last, time < last.time {
+            fine.removeAll { $0.time >= time }
+            minutes.removeAll { $0.time >= Self.minute(of: time) }
+            bucketStart = nil
+            bucket = []
+        }
         fine.append(MetricPoint(time: time, cpu: cpu, memory: memory))
         if let first = fine.first, time.timeIntervalSince(first.time) > Self.fineSpan {
             fine.removeAll { time.timeIntervalSince($0.time) > Self.fineSpan }

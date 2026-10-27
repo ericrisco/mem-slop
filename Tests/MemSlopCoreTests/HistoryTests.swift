@@ -67,4 +67,15 @@ import Testing
         #expect(reduced.allSatisfy { abs($0.cpu - 0.5) < 0.2 && $0.cpuPeak == 1 })
         #expect(MetricHistory.downsample(Array(points.prefix(10)), to: 240).count == 10)
     }
+
+    @Test func clockGoingBackwardsKeepsPointsOrdered() {
+        var history = MetricHistory()
+        for second in stride(from: 0, to: 300, by: 2) {
+            history.record(time: start.addingTimeInterval(TimeInterval(second)), cpu: 0.2, memory: 0.3)
+        }
+        history.record(time: start.addingTimeInterval(100), cpu: 0.9, memory: 0.9)
+        let times = history.fine.map(\.time)
+        #expect(times == times.sorted())
+        #expect(history.fine.last?.cpu == 0.9)
+    }
 }

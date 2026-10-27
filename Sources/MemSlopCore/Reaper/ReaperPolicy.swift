@@ -34,6 +34,14 @@ public struct ReapCandidate: Identifiable, Sendable, Hashable {
     public let idleFor: TimeInterval
 
     public var id: ProcessIdentity { process.id }
+
+    public init(process: ProcessSample, rule: String, ancestry: Ancestry, averageCPU: Double, idleFor: TimeInterval) {
+        self.process = process
+        self.rule = rule
+        self.ancestry = ancestry
+        self.averageCPU = averageCPU
+        self.idleFor = idleFor
+    }
 }
 
 /// Pure decision logic: given what we see, which processes are idle dev slop?
