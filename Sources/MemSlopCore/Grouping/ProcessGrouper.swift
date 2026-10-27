@@ -67,7 +67,7 @@ public struct ProcessGrouper: Sendable {
         }
     }
 
-    static func classify(_ process: ProcessSample) -> (id: String, name: String, kind: ProcessGroup.Kind) {
+    public static func classify(_ process: ProcessSample) -> (id: String, name: String, kind: ProcessGroup.Kind) {
         if let family = ProcessFamily.detect(name: process.name, arguments: process.arguments) {
             return ("family:\(family.rawValue)", family.displayName, .family(family))
         }
