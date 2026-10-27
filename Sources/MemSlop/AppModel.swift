@@ -31,10 +31,17 @@ final class AppModel {
     private(set) var quitting: Set<ProcessIdentity> = []
     private(set) var errors: [ProcessIdentity: String] = [:]
 
-    /// True while a view lists processes; the process table is then refreshed every tick.
+    /// True while the panel lists processes; the process table is then refreshed every tick.
     var isListVisible = false {
         didSet { if isListVisible, !oldValue { Task { await tick(forceProcesses: true) } } }
     }
+    var isDashboardVisible = false {
+        didSet { if isDashboardVisible, !oldValue { Task { await tick(forceProcesses: true) } } }
+    }
+
+    let reaper = ReaperEngine()
+    /// Slop rule name per process, for badges.
+    private(set) var slopMatches: [ProcessIdentity: String] = [:]
 
     @ObservationIgnored var onIndicatorChange: (() -> Void)?
     @ObservationIgnored private let sampler = Sampler()
@@ -66,10 +73,17 @@ final class AppModel {
     }
 
     private func tick(forceProcesses: Bool = false) async {
-        let includeProcesses = forceProcesses || isListVisible || Date().timeIntervalSince(lastProcessSample) >= 10
+        let includeProcesses = forceProcesses || isListVisible || isDashboardVisible || Date().timeIntervalSince(lastProcessSample) >= 10
         let snapshot = await sampler.sample(includeProcesses: includeProcesses)
         if includeProcesses { lastProcessSample = snapshot.timestamp }
         apply(snapshot, processesChanged: includeProcesses)
+        reaper.observe(snapshot, processesSampled: includeProcesses)
+    }
+
+    /// Runs an auto-clean sweep on the next tick.
+    func sweepNow() {
+        reaper.requestSweep()
+        Task { await tick(forceProcesses: true) }
     }
 
     private func apply(_ snapshot: MonitorSnapshot, processesChanged: Bool) {
@@ -93,6 +107,12 @@ final class AppModel {
                 || process.commandLine.lowercased().contains(query)
         }
         groups = ProcessGrouper().group(visible, sortedBy: sortKey)
+        let policy = reaper.policy
+        var matches: [ProcessIdentity: String] = [:]
+        for process in snapshot.processes where process.pid != ownPID {
+            if let rule = policy.matchingRule(for: process), !policy.isProtected(process) { matches[process.id] = rule.name }
+        }
+        slopMatches = matches
     }
 
     // MARK: - Actions

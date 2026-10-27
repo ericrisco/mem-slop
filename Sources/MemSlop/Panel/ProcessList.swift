@@ -56,6 +56,16 @@ struct GroupRow: View {
                     Text(group.name)
                         .font(.system(size: 12.5, weight: .semibold))
                         .lineLimit(1)
+                    let slop = group.processes.filter { model.slopMatches[$0.id] != nil }.count
+                    if slop > 0 {
+                        Text("\(slop) slop")
+                            .font(.system(size: 8.5, weight: .heavy))
+                            .textCase(.uppercase)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .foregroundStyle(Theme.slop)
+                            .background(Theme.slop.opacity(0.16), in: Capsule())
+                    }
                     if group.processes.count > 1 {
                         Text("\(group.processes.count)")
                             .font(.system(size: 9.5, weight: .bold).monospacedDigit())
@@ -127,6 +137,9 @@ struct ProcessRow: View {
                     Text("\(process.pid)")
                         .font(.system(size: 10).monospacedDigit())
                         .foregroundStyle(.tertiary)
+                    if let rule = model.slopMatches[process.id] {
+                        SlopBadge(rule: rule, pending: model.reaper.isPending(process.id))
+                    }
                 }
                 if let error = model.errors[process.id] {
                     Text(error)

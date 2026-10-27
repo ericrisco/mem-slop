@@ -7,8 +7,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusController: StatusItemController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        WindowManager.shared.model = model
         statusController = StatusItemController(model: model)
         model.start()
+        for argument in CommandLine.arguments where argument.hasPrefix("--open=") {
+            if let kind = WindowManager.Kind(rawValue: String(argument.dropFirst("--open=".count))) {
+                WindowManager.shared.show(kind)
+            }
+        }
         if CommandLine.arguments.contains("--show-panel") {
             Task {
                 try? await Task.sleep(for: .seconds(2.5))

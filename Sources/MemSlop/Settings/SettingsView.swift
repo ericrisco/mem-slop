@@ -1,0 +1,256 @@
+import MemSlopCore
+import ServiceManagement
+import SwiftUI
+
+struct SettingsView: View {
+    @AppStorage("settingsTab") private var tab = "general"
+
+    var body: some View {
+        TabView(selection: $tab) {
+            GeneralSettings()
+                .tabItem { Label("General", systemImage: "gearshape") }
+                .tag("general")
+            AutoCleanSettings()
+                .tabItem { Label("Auto-clean", systemImage: "sparkles") }
+                .tag("autoclean")
+            RulesSettings(kind: .slop)
+                .tabItem { Label("Slop rules", systemImage: "list.bullet.rectangle") }
+                .tag("rules")
+            RulesSettings(kind: .protected)
+                .tabItem { Label("Protected", systemImage: "lock.shield") }
+                .tag("protected")
+            AboutSettings()
+                .tabItem { Label("About", systemImage: "info.circle") }
+                .tag("about")
+        }
+        .frame(width: 680, height: 520)
+    }
+}
+
+// MARK: - General
+
+private struct GeneralSettings: View {
+    @Environment(AppModel.self) private var model
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var loginError: String?
+
+    var body: some View {
+        @Bindable var model = model
+        Form {
+            Section("Menu bar") {
+                Picker("Style", selection: $model.displayStyle) {
+                    ForEach(DisplayStyle.allCases) { style in
+                        HStack {
+                            Image(nsImage: IndicatorRenderer.image(for: .init(style: style, cpu: 0.23, memory: 0.61)))
+                            Text(style.title)
+                        }
+                        .tag(style)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                Picker("Refresh every", selection: $model.refreshInterval) {
+                    Text("1 second").tag(1.0)
+                    Text("2 seconds").tag(2.0)
+                    Text("5 seconds").tag(5.0)
+                }
+            }
+            Section("Startup") {
+                Toggle("Open MemSlop at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, enabled in setLaunchAtLogin(enabled) }
+                if let loginError {
+                    Text(loginError).font(.caption).foregroundStyle(Theme.danger)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            loginError = nil
+        } catch {
+            loginError = "Could not change the login item: \(error.localizedDescription). Move MemSlop to Applications and try again."
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+}
+
+// MARK: - Auto-clean
+
+private struct AutoCleanSettings: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var reaper = model.reaper
+        Form {
+            Section {
+                Toggle(isOn: $reaper.configuration.isEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Clean up idle dev slop automatically")
+                        Text("Closes forgotten dev servers, test browsers and leftovers from AI agents.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Picker("Check every", selection: $reaper.configuration.intervalMinutes) {
+                    ForEach(ReaperConfiguration.intervalChoices, id: \.self) { minutes in
+                        Text(minutes == 60 ? "1 h" : "\(minutes) min").tag(minutes)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text("A process must have been idle for this whole time to be closed.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Safety") {
+                Toggle("Warn \(reaper.configuration.graceSeconds) s before closing, with a Keep button", isOn: $reaper.configuration.notifyBefore)
+                Toggle("Dry run: only log what would be closed", isOn: $reaper.configuration.dryRun)
+                LabeledContent("Idle means CPU below") {
+                    Stepper(value: $reaper.configuration.cpuThreshold, in: 0.1...5, step: 0.1) {
+                        Text(String(format: "%.1f%%", reaper.configuration.cpuThreshold)).monospacedDigit()
+                    }
+                }
+                LabeledContent("and memory changing less than") {
+                    Stepper(value: $reaper.configuration.memoryChangeFraction, in: 0.01...0.5, step: 0.01) {
+                        Text("\(Int((reaper.configuration.memoryChangeFraction * 100).rounded()))%").monospacedDigit()
+                    }
+                }
+            }
+            Section("A process is only ever closed when") {
+                VStack(alignment: .leading, spacing: 6) {
+                    SafetyLine("It matches an enabled slop rule and no protected rule")
+                    SafetyLine("It belongs to you and is not a regular app (except test browsers)")
+                    SafetyLine("It is not attached to a terminal or IDE, unless an AI agent started it")
+                    SafetyLine("It and its children were idle for the whole interval and stayed idle during the warning")
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct SafetyLine: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Label {
+            Text(text).font(.callout)
+        } icon: {
+            Image(systemName: "checkmark.shield.fill").foregroundStyle(Theme.memory)
+        }
+    }
+}
+
+// MARK: - Rules
+
+struct RulesSettings: View {
+    enum Kind { case slop, protected }
+
+    @Environment(AppModel.self) private var model
+    let kind: Kind
+
+    var body: some View {
+        @Bindable var reaper = model.reaper
+        let rules = kind == .slop ? $reaper.configuration.rules : $reaper.configuration.protected
+        VStack(alignment: .leading, spacing: 10) {
+            Text(kind == .slop
+                 ? "Processes matching these rules may be closed when idle. Changes apply on the next check."
+                 : "Processes matching these rules are never closed automatically.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            RuleEditor(rules: rules, allowsApps: kind == .slop, running: runningCount)
+            HStack {
+                Button {
+                    rules.wrappedValue.insert(ProcessRule(name: "New rule", field: kind == .slop ? .command : .app, pattern: ""), at: 0)
+                } label: {
+                    Label("Add rule", systemImage: "plus")
+                }
+                Spacer()
+                Button("Restore defaults") {
+                    if kind == .slop { model.reaper.restoreDefaultRules() } else { model.reaper.restoreDefaultProtected() }
+                }
+            }
+        }
+        .padding(20)
+    }
+
+    private func runningCount(_ rule: ProcessRule) -> Int {
+        model.snapshot.processes.reduce(0) { $0 + (rule.matches($1) ? 1 : 0) }
+    }
+}
+
+struct RuleEditor: View {
+    @Binding var rules: [ProcessRule]
+    let allowsApps: Bool
+    let running: (ProcessRule) -> Int
+
+    var body: some View {
+        List {
+            ForEach($rules) { $rule in
+                HStack(spacing: 10) {
+                    Toggle("", isOn: $rule.isEnabled).labelsHidden().toggleStyle(.switch).controlSize(.mini)
+                    TextField("Name", text: $rule.name)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 150)
+                    Picker("", selection: $rule.field) {
+                        ForEach(ProcessRule.Field.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden()
+                    .frame(width: 150)
+                    TextField("Pattern", text: $rule.pattern)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .overlay(alignment: .trailing) {
+                            if !rule.isValid {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(Theme.slop)
+                                    .padding(.trailing, 6)
+                                    .help("Empty rules never match")
+                            }
+                        }
+                    if allowsApps, rule.matchesApps {
+                        Image(systemName: "macwindow").foregroundStyle(.secondary).help("May close regular apps (test browsers)")
+                    }
+                    let count = running(rule)
+                    Text(count == 0 ? "–" : "\(count) running")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(count == 0 ? .tertiary : .secondary)
+                        .frame(width: 70, alignment: .trailing)
+                    Button {
+                        rules.removeAll { $0.id == rule.id }
+                    } label: {
+                        Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove rule")
+                }
+                .opacity(rule.isEnabled ? 1 : 0.55)
+            }
+        }
+        .listStyle(.bordered(alternatesRowBackgrounds: true))
+    }
+}
+
+// MARK: - About
+
+private struct AboutSettings: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 96, height: 96)
+            Wordmark(size: 28)
+            Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
+                .foregroundStyle(.secondary)
+            Text("Your AI agents leave slop running. MemSlop cleans it up.")
+                .font(.callout)
+            Link("github.com/ericrisco/mem-slop", destination: URL(string: "https://github.com/ericrisco/mem-slop")!)
+            Text("MIT License · No network, no telemetry.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}

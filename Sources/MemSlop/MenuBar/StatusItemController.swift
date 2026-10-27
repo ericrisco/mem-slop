@@ -89,12 +89,19 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
         styles.submenu = submenu
         menu.addItem(styles)
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit MemSlop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
         item.menu = menu
         item.button?.performClick(nil)
         item.menu = nil
+    }
+
+    @objc private func openSettings() {
+        WindowManager.shared.show(.settings)
     }
 
     @objc private func selectStyle(_ sender: NSMenuItem) {

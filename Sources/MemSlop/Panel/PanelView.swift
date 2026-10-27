@@ -4,7 +4,7 @@ import SwiftUI
 /// The popover shown when the menu bar item is clicked.
 struct PanelView: View {
     static let width: CGFloat = 420
-    static let height: CGFloat = 640
+    static let height: CGFloat = 680
 
     @Environment(AppModel.self) private var model
     var onOpenWindow: () -> Void = {}
@@ -16,6 +16,9 @@ struct PanelView: View {
             SystemOverview()
                 .padding(.horizontal, 14)
                 .padding(.top, 10)
+            ReaperStrip()
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
             ProcessToolbar()
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -36,10 +39,21 @@ private struct PanelHeader: View {
         HStack(spacing: 8) {
             Wordmark()
             Spacer()
+            Button {
+                WindowManager.shared.show(.settings)
+            } label: {
+                Image(systemName: "gearshape").font(.system(size: 14))
+            }
+            .buttonStyle(.borderless)
+            .help("Settings")
             Menu {
                 Picker("Menu Bar Style", selection: $model.displayStyle) {
                     ForEach(DisplayStyle.allCases) { Text($0.title).tag($0) }
                 }
+                Divider()
+                Button("Check for Idle Slop Now") { model.sweepNow() }
+                Button("Settings…") { WindowManager.shared.show(.settings) }
+                    .keyboardShortcut(",")
                 Divider()
                 Button("Quit MemSlop") { NSApp.terminate(nil) }
                     .keyboardShortcut("q")
