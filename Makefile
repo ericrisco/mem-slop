@@ -1,4 +1,4 @@
-.PHONY: build test app run install uninstall clean release
+.PHONY: build test app run install uninstall clean release icon verify demo
 
 PREFIX ?= /Applications
 
@@ -27,8 +27,17 @@ uninstall:
 
 release:
 	./scripts/build-app.sh --universal
-	cd dist && ditto -c -k --keepParent MemSlop.app MemSlop-$$(tr -d '[:space:]' < ../VERSION).zip
-	cd dist && shasum -a 256 MemSlop-*.zip > checksums.txt
+	./scripts/package.sh
 
 clean:
 	rm -rf .build dist
+
+icon:
+	./scripts/make-icon.sh
+
+verify:
+	./scripts/verify.sh
+
+demo: app
+	-pkill -x MemSlop
+	open dist/MemSlop.app --args --demo --open=dashboard
