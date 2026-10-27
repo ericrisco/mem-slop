@@ -3,6 +3,18 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-10-27
+
+### Added
+- **Dashboard window** with a sidebar: Overview, Processes, Activity and Rules.
+- 24-hour CPU and memory history that survives restarts, with 1 h / 6 h / 24 h charts. Hover any moment to see what was using the most memory then.
+- Overview cards for CPU, memory, pressure and load, the biggest groups right now, and an auto-clean summary (memory freed today).
+- Activity table of everything auto-clean closed, kept or would have closed, with filters and search.
+- "Open Dashboard" in the panel, the panel menu and the right-click menu.
+
+### Changed
+- Much cheaper rule matching (byte-level search, rules compiled once, results cached per process). The dashboard stays at a few percent of one core.
+
 ## [0.2.0] - 2026-10-27
 
 ### Added

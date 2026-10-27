@@ -17,6 +17,8 @@ Chrome*, *everything Claude Code left behind*.
 - Quit one process, a group, or a selection. Apps quit politely; stubborn processes get forced.
 - **Auto-clean** of idle dev slop every 10 minutes (configurable), with a 60 s warning and a Keep
   button. It never touches your apps, or a server you started in your own terminal.
+- **Dashboard window** with 24 h charts (hover to see who was using the memory), the activity log
+  of every cleanup, and the rule editors.
 
 ## Build from source
 
