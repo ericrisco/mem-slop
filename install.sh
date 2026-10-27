@@ -102,7 +102,9 @@ else
     || die "could not download the checksum"
   expected="$(awk '{print $1}' "$tmp/MemSlop.zip.sha256")"
   actual="$(shasum -a 256 "$tmp/MemSlop.zip" | awk '{print $1}')"
-  [ -n "$expected" ] && [ "$expected" = "$actual" ] || die "checksum mismatch (expected ${expected:-nothing}, got ${actual}). Nothing was installed."
+  if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+    die "checksum mismatch (expected ${expected:-nothing}, got ${actual}). Nothing was installed."
+  fi
   say "Checksum OK"
   ditto -x -k "$tmp/MemSlop.zip" "$tmp/unzipped"
   built="$tmp/unzipped/${APP_NAME}"
