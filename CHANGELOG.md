@@ -3,6 +3,19 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] - 2026-10-27
+
+### Added
+- One-line installer (`install.sh`): downloads the latest release, verifies its SHA-256, installs and opens MemSlop. Also supports `--version`, `--from-source`, `--dir`, `--no-launch` and `--uninstall`.
+- Universal (Apple Silicon + Intel) releases built and published by GitHub Actions on every tag, with notes taken from this changelog.
+- CI on every push and pull request: build with warnings as errors, tests, app bundle and ShellCheck.
+- App icon: a memory chip melting into slop.
+- `--demo` mode with synthetic data, for trying the UI and taking screenshots without touching real processes.
+- README, architecture notes and contributing guide.
+
+### Fixed
+- History stays ordered if the system clock goes backwards.
+
 ## [0.3.0] - 2026-10-27
 
 ### Added
@@ -35,3 +48,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Sort by CPU or memory, search by name, PID or command.
 - Quit a process, a whole group, or a multi-selection. Apps are asked to quit like the Dock does; other processes get SIGTERM, then SIGKILL after 5 s.
 - Core sampling with libproc and Mach (under 1% CPU and ~20 MB while idle).
+
+[1.0.0]: https://github.com/ericrisco/mem-slop/releases/tag/v1.0.0
+[0.3.0]: https://github.com/ericrisco/mem-slop/releases/tag/v0.3.0
+[0.2.0]: https://github.com/ericrisco/mem-slop/releases/tag/v0.2.0
+[0.1.0]: https://github.com/ericrisco/mem-slop/releases/tag/v0.1.0
