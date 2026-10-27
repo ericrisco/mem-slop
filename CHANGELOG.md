@@ -3,6 +3,17 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-10-27
+
+### Added
+- **Auto-clean**: every 10, 15, 20, 30 or 60 minutes, closes idle dev slop. That means dev servers (Next.js, Vite, uvicorn, Flask, Django, Streamlit, Jupyter…), test browsers (Chrome for Testing, Playwright, Puppeteer, headless) and leftovers from AI agents.
+- Safety rules: a process is only closed when it matches a slop rule, is not protected, is not a regular app, is not attached to a terminal or IDE (unless an AI agent such as Claude Code or Codex started it), and it and its children were idle for the whole interval.
+- 60-second warning with **Keep** and **Close now**, in the panel and as a notification. A process that wakes up during the warning is spared.
+- Dry-run mode that only logs what would be closed.
+- Settings window: menu bar style, refresh rate, open at login, auto-clean options, and editors for slop rules and the protected list (with a live "running" count per rule).
+- "Slop" badges on processes and groups that match a rule.
+- Activity log of every close, kept for 24 hours.
+
 ## [0.1.0] - 2026-10-27
 
 ### Added
