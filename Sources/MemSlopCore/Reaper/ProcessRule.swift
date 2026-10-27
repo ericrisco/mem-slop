@@ -44,17 +44,37 @@ public struct ProcessRule: Identifiable, Hashable, Sendable, Codable {
     }
 
     public func matches(_ process: ProcessSample) -> Bool {
-        guard isEnabled, isValid else { return false }
-        let needle = pattern.trimmingCharacters(in: .whitespaces).lowercased()
-        switch field {
+        CompiledRule(self)?.matches(process) ?? false
+    }
+}
+
+/// A rule with its pattern normalised once, for matching hundreds of processes per tick.
+public struct CompiledRule: Sendable {
+    public let rule: ProcessRule
+    private let needle: String
+    private let needleBytes: [UInt8]
+
+    /// `nil` for disabled or invalid rules: they never match.
+    public init?(_ rule: ProcessRule) {
+        guard rule.isEnabled, rule.isValid else { return nil }
+        self.rule = rule
+        needle = rule.pattern.trimmingCharacters(in: .whitespaces).lowercased()
+        needleBytes = Array(needle.utf8)
+    }
+
+    private static let appMarker = Array(".app".utf8)
+
+    public func matches(_ process: ProcessSample) -> Bool {
+        switch rule.field {
         case .executable:
-            return process.name.lowercased() == needle
+            return process.matchKeys.name == needle
         case .command:
-            return process.commandLine.lowercased().contains(needle)
+            return process.matchKeys.commandLine.contains(needleBytes)
         case .path:
-            return process.executablePath.lowercased().contains(needle)
+            return process.matchKeys.path.contains(needleBytes)
         case .app:
-            guard let bundle = ProcessGrouper.outermostAppBundle(in: process.executablePath) else { return false }
+            guard process.matchKeys.path.contains(Self.appMarker),
+                  let bundle = ProcessGrouper.outermostAppBundle(in: process.executablePath) else { return false }
             let file = ((bundle as NSString).lastPathComponent as NSString).deletingPathExtension.lowercased()
             return file == needle || AppNames.shared.name(forBundleAt: bundle).lowercased() == needle
         }

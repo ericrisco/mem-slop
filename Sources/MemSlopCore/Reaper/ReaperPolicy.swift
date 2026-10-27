@@ -38,19 +38,23 @@ public struct ReapCandidate: Identifiable, Sendable, Hashable {
 
 /// Pure decision logic: given what we see, which processes are idle dev slop?
 public struct ReaperPolicy: Sendable {
-    public var configuration: ReaperConfiguration
+    public let configuration: ReaperConfiguration
+    private let rules: [CompiledRule]
+    private let protected: [CompiledRule]
 
     public init(configuration: ReaperConfiguration) {
         self.configuration = configuration
+        rules = configuration.rules.compactMap(CompiledRule.init)
+        protected = configuration.protected.compactMap(CompiledRule.init)
     }
 
     /// The first enabled slop rule that matches, ignoring idleness and ancestry.
     public func matchingRule(for process: ProcessSample) -> ProcessRule? {
-        configuration.rules.first { $0.matches(process) }
+        rules.first { $0.matches(process) }?.rule
     }
 
     public func isProtected(_ process: ProcessSample) -> Bool {
-        configuration.protected.contains { $0.matches(process) }
+        protected.contains { $0.matches(process) }
     }
 
     /// - Parameters:

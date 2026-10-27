@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Stable identity of a process. PIDs are recycled, so the start time is part of the key.
@@ -30,6 +31,16 @@ public struct ProcessSample: Identifiable, Hashable, Sendable {
     /// Cumulative user + system CPU time in nanoseconds.
     public let cpuTimeNanos: UInt64
     public let startDate: Date
+    /// The full command line, falling back to the executable path.
+    public let commandLine: String
+    /// Lowercased copies for matching and search, computed once per sample.
+    public let matchKeys: MatchKeys
+
+    public struct MatchKeys: Hashable, Sendable {
+        public let name: String
+        public let commandLine: ByteText
+        public let path: ByteText
+    }
 
     public var pid: Int32 { id.pid }
 
@@ -48,11 +59,9 @@ public struct ProcessSample: Identifiable, Hashable, Sendable {
         self.memoryBytes = memoryBytes
         self.cpuTimeNanos = cpuTimeNanos
         self.startDate = startDate
-    }
-
-    /// The full command line, falling back to the executable path.
-    public var commandLine: String {
-        arguments.isEmpty ? executablePath : arguments.joined(separator: " ")
+        let commandLine = arguments.isEmpty ? executablePath : arguments.joined(separator: " ")
+        self.commandLine = commandLine
+        matchKeys = MatchKeys(name: name.lowercased(), commandLine: ByteText(commandLine), path: ByteText(executablePath))
     }
 }
 
@@ -142,4 +151,28 @@ public struct MonitorSnapshot: Sendable {
     }
 
     public static let empty = MonitorSnapshot(timestamp: .distantPast, system: SystemSnapshot(), processes: [], tree: [:])
+}
+
+/// Lowercased UTF-8 bytes with a fast substring search (`memmem`), for matching long command lines.
+public struct ByteText: Hashable, Sendable {
+    public let bytes: [UInt8]
+
+    public init(_ text: String) {
+        bytes = Array(text.lowercased().utf8)
+    }
+
+    /// `needle` must already be lowercased.
+    public func contains(_ needle: [UInt8]) -> Bool {
+        guard !needle.isEmpty else { return true }
+        guard needle.count <= bytes.count else { return false }
+        return bytes.withUnsafeBytes { haystack in
+            needle.withUnsafeBytes { pattern in
+                memmem(haystack.baseAddress, haystack.count, pattern.baseAddress, pattern.count) != nil
+            }
+        }
+    }
+
+    public func contains(_ needle: String) -> Bool {
+        contains(Array(needle.lowercased().utf8))
+    }
 }

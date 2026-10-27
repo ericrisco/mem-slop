@@ -212,6 +212,15 @@ private struct World {
         #expect(!ProcessRule(name: "a", field: .app, pattern: "Disc").matches(process))
     }
 
+    @Test func byteTextSearchIsCaseInsensitive() {
+        let text = ByteText("node /Users/Me/app/node_modules/.bin/NEXT dev --port 3000")
+        #expect(text.contains("next dev"))
+        #expect(text.contains("NODE_MODULES"))
+        #expect(!text.contains("vite"))
+        #expect(text.contains(""))
+        #expect(!ByteText("ab").contains("abc"))
+    }
+
     @Test func emptyPatternIsInvalidAndNeverMatches() {
         let rule = ProcessRule(name: "Bad", field: .command, pattern: "  ")
         #expect(!rule.isValid)

@@ -79,7 +79,7 @@ public enum ProcessFamily: String, CaseIterable, Sendable, Codable {
     public static func detect(name: String, arguments: [String]) -> ProcessFamily? {
         let lower = name.lowercased()
         if executables[.agents]!.contains(lower) { return .agents }
-        if arguments.contains(where: { argument in agentArgumentMarkers.contains { argument.contains($0) } }) {
+        if arguments.prefix(3).contains(where: { argument in agentArgumentMarkers.contains { argument.contains($0) } }) {
             return .agents
         }
         if lower.hasPrefix("python") || lower == "pythonw" { return .python }
