@@ -11,7 +11,7 @@ struct PanelView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            PanelHeader()
+            PanelHeader(onOpenWindow: onOpenWindow)
                 .padding([.horizontal, .top], 14)
             SystemOverview()
                 .padding(.horizontal, 14)
@@ -33,6 +33,7 @@ struct PanelView: View {
 
 private struct PanelHeader: View {
     @Environment(AppModel.self) private var model
+    let onOpenWindow: () -> Void
 
     var body: some View {
         @Bindable var model = model
@@ -40,6 +41,15 @@ private struct PanelHeader: View {
             Wordmark()
             Spacer()
             Button {
+                onOpenWindow()
+                WindowManager.shared.show(.dashboard)
+            } label: {
+                Image(systemName: "macwindow").font(.system(size: 14))
+            }
+            .buttonStyle(.borderless)
+            .help("Open dashboard")
+            Button {
+                onOpenWindow()
                 WindowManager.shared.show(.settings)
             } label: {
                 Image(systemName: "gearshape").font(.system(size: 14))
@@ -52,7 +62,8 @@ private struct PanelHeader: View {
                 }
                 Divider()
                 Button("Check for Idle Slop Now") { model.sweepNow() }
-                Button("Settings…") { WindowManager.shared.show(.settings) }
+                Button("Open Dashboard") { onOpenWindow(); WindowManager.shared.show(.dashboard) }
+                Button("Settings…") { onOpenWindow(); WindowManager.shared.show(.settings) }
                     .keyboardShortcut(",")
                 Divider()
                 Button("Quit MemSlop") { NSApp.terminate(nil) }

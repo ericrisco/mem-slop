@@ -40,6 +40,13 @@ final class AppModel {
     }
 
     let reaper = ReaperEngine()
+    private(set) var history = MetricHistory.load(from: StoragePaths.history)
+    /// Biggest groups right now, ignoring the search filter.
+    private(set) var topGroups: [ProcessGroup] = []
+    @ObservationIgnored private var lastHistorySave = Date()
+    @ObservationIgnored private var matchCache: [ProcessIdentity: String?] = [:]
+    @ObservationIgnored private var matchCacheRules: [ProcessRule] = []
+    @ObservationIgnored private var matchCacheProtected: [ProcessRule] = []
     /// Slop rule name per process, for badges.
     private(set) var slopMatches: [ProcessIdentity: String] = [:]
 
@@ -70,6 +77,7 @@ final class AppModel {
     func stop() {
         loop?.cancel()
         loop = nil
+        history.save(to: StoragePaths.history)
     }
 
     private func tick(forceProcesses: Bool = false) async {
@@ -91,6 +99,21 @@ final class AppModel {
         cpuTrend = Array((cpuTrend + [snapshot.system.cpuUsage]).suffix(Self.trendLength))
         memoryTrend = Array((memoryTrend + [snapshot.system.memoryUsage]).suffix(Self.trendLength))
         onIndicatorChange?()
+        var top: [GroupUsage]?
+        if processesChanged {
+            let all = ProcessGrouper().group(snapshot.processes, sortedBy: .memory)
+            topGroups = Array(all.prefix(8))
+            let byCPU = all.sorted { $0.cpuPercent > $1.cpuPercent }.prefix(3)
+            var seen = Set<String>()
+            top = (Array(all.prefix(5)) + byCPU)
+                .filter { seen.insert($0.id).inserted }
+                .map { GroupUsage(name: $0.name, cpuPercent: $0.cpuPercent, memoryBytes: $0.memoryBytes) }
+        }
+        history.record(time: snapshot.timestamp, cpu: snapshot.system.cpuUsage, memory: snapshot.system.memoryUsage, top: top)
+        if snapshot.timestamp.timeIntervalSince(lastHistorySave) >= 60 {
+            lastHistorySave = snapshot.timestamp
+            history.save(to: StoragePaths.history)
+        }
         guard processesChanged else { return }
         self.snapshot = snapshot
         let alive = Set(snapshot.processes.map(\.id))
@@ -101,17 +124,32 @@ final class AppModel {
 
     private func regroup() {
         let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        let queryBytes = Array(query.utf8)
         let visible = query.isEmpty ? snapshot.processes : snapshot.processes.filter { process in
-            process.name.lowercased().contains(query)
+            process.matchKeys.name.contains(query)
                 || String(process.pid).hasPrefix(query)
-                || process.commandLine.lowercased().contains(query)
+                || process.matchKeys.commandLine.contains(queryBytes)
         }
         groups = ProcessGrouper().group(visible, sortedBy: sortKey)
+        // A process's command line never changes, so its slop match is computed once per rule set.
+        let configuration = reaper.configuration
+        if configuration.rules != matchCacheRules || configuration.protected != matchCacheProtected {
+            matchCache = [:]
+            matchCacheRules = configuration.rules
+            matchCacheProtected = configuration.protected
+        }
         let policy = reaper.policy
         var matches: [ProcessIdentity: String] = [:]
+        var cache: [ProcessIdentity: String?] = [:]
         for process in snapshot.processes where process.pid != ownPID {
-            if let rule = policy.matchingRule(for: process), !policy.isProtected(process) { matches[process.id] = rule.name }
+            let match = matchCache[process.id] ?? {
+                guard let rule = policy.matchingRule(for: process), !policy.isProtected(process) else { return nil }
+                return rule.name
+            }()
+            cache[process.id] = match
+            if let match { matches[process.id] = match }
         }
+        matchCache = cache
         slopMatches = matches
     }
 

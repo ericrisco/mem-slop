@@ -89,6 +89,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
         styles.submenu = submenu
         menu.addItem(styles)
+        let dashboard = NSMenuItem(title: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "d")
+        dashboard.target = self
+        menu.addItem(dashboard)
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -98,6 +101,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         item.menu = menu
         item.button?.performClick(nil)
         item.menu = nil
+    }
+
+    @objc private func openDashboard() {
+        WindowManager.shared.show(.dashboard)
     }
 
     @objc private func openSettings() {

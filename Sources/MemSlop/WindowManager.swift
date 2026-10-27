@@ -18,6 +18,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
         guard let model else { return }
         let window = windows[kind] ?? makeWindow(kind, model: model)
         windows[kind] = window
+        if kind == .dashboard { model.isDashboardVisible = true }
         NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
