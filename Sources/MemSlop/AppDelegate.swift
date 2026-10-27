@@ -15,6 +15,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 WindowManager.shared.show(kind)
             }
         }
+        if DemoData.isEnabled {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                model.reaper.showDemoPending(model.snapshot)
+            }
+        }
         if CommandLine.arguments.contains("--show-panel") {
             Task {
                 try? await Task.sleep(for: .seconds(2.5))

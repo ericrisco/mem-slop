@@ -9,6 +9,8 @@ final class WindowManager: NSObject, NSWindowDelegate {
     enum Kind: String {
         case settings
         case dashboard
+        /// The menu bar panel in a window (`--open=panel`), for screenshots.
+        case panel
     }
 
     private var windows: [Kind: NSWindow] = [:]
@@ -31,6 +33,16 @@ final class WindowManager: NSObject, NSWindowDelegate {
             window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView().environment(model)))
             window.title = "MemSlop Settings"
             window.styleMask = [.titled, .closable, .miniaturizable]
+        case .panel:
+            window = NSWindow(contentViewController: NSHostingController(rootView: PanelView().environment(model)))
+            window.styleMask = [.titled, .closable, .fullSizeContentView]
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.isMovableByWindowBackground = true
+            for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                window.standardWindowButton(button)?.isHidden = true
+            }
+            model.isListVisible = true
         case .dashboard:
             window = NSWindow(contentViewController: NSHostingController(rootView: DashboardView().environment(model)))
             window.title = "MemSlop"

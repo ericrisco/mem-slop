@@ -7,7 +7,7 @@ import Observation
 final class ReaperEngine {
     var configuration: ReaperConfiguration {
         didSet {
-            Self.save(configuration)
+            if !DemoData.isEnabled { Self.save(configuration) }
             if configuration.intervalMinutes != oldValue.intervalMinutes || configuration.isEnabled != oldValue.isEnabled {
                 cancelPending()
                 nextSweep = Date().addingTimeInterval(configuration.window)
@@ -38,13 +38,30 @@ final class ReaperEngine {
     init() {
         var configuration = Self.load()
         configuration.windowOverride = Self.testWindow()
-        forceDryRun = CommandLine.arguments.contains("--reaper-dry-run")
+        forceDryRun = CommandLine.arguments.contains("--reaper-dry-run") || DemoData.isEnabled
         self.configuration = configuration
         nextSweep = Date().addingTimeInterval(configuration.window)
-        log = ActivityLog(fileURL: StoragePaths.activityLog)
+        log = ActivityLog(fileURL: DemoData.isEnabled ? nil : StoragePaths.activityLog)
         notifier = ReaperNotifier()
         notifier.onKeepAll = { [weak self] in self?.keepAll() }
         notifier.onCloseNow = { [weak self] in self?.closeNow() }
+        if DemoData.isEnabled { log.append(DemoData.activity(now: Date())) }
+    }
+
+    /// Demo only: shows a pending cleanup without ever closing anything.
+    func showDemoPending(_ snapshot: MonitorSnapshot) {
+        guard DemoData.isEnabled else { return }
+        let rules = policy
+        var families = Set<String>()
+        pending = snapshot.processes.compactMap { process in
+            guard let rule = rules.matchingRule(for: process), !rules.isProtected(process), process.cpuPercent < 1,
+                  families.insert(ProcessGrouper.classify(process).id).inserted else { return nil }
+            let ancestry: Ancestry = process.name == "node" ? .agentSpawned(agent: "Claude Code")
+                : process.name.hasPrefix("python") ? .agentSpawned(agent: "Codex") : .orphaned
+            return ReapCandidate(process: process, rule: rule.name, ancestry: ancestry, averageCPU: 0, idleFor: 1500)
+        }
+        pendingDeadline = Date().addingTimeInterval(47)
+        nextSweep = Date().addingTimeInterval(600)
     }
 
     /// Memory freed by successful closes since local midnight.
@@ -64,7 +81,7 @@ final class ReaperEngine {
         pending.removeAll { !alive.contains($0.id) }
         if pending.isEmpty, pendingDeadline != nil { pendingDeadline = nil }
 
-        guard configuration.isEnabled, !isClosing else { return }
+        guard configuration.isEnabled, !isClosing, !DemoData.isEnabled else { return }
         if let deadline = pendingDeadline {
             if now >= deadline { close(using: snapshot) }
         } else if sweepRequested || now >= nextSweep {

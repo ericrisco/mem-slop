@@ -40,7 +40,7 @@ final class AppModel {
     }
 
     let reaper = ReaperEngine()
-    private(set) var history = MetricHistory.load(from: StoragePaths.history)
+    private(set) var history = DemoData.isEnabled ? DemoData.history(now: Date()) : MetricHistory.load(from: StoragePaths.history)
     /// Biggest groups right now, ignoring the search filter.
     private(set) var topGroups: [ProcessGroup] = []
     @ObservationIgnored private var lastHistorySave = Date()
@@ -51,7 +51,7 @@ final class AppModel {
     private(set) var slopMatches: [ProcessIdentity: String] = [:]
 
     @ObservationIgnored var onIndicatorChange: (() -> Void)?
-    @ObservationIgnored private let sampler = Sampler()
+    @ObservationIgnored private let sampler: any SnapshotSource = DemoData.isEnabled ? DemoSource() : Sampler()
     @ObservationIgnored private let controller = ProcessController()
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private var lastProcessSample = Date.distantPast
@@ -65,6 +65,9 @@ final class AppModel {
 
     func start() {
         guard loop == nil else { return }
+        let recent = history.fine.suffix(Self.trendLength)
+        cpuTrend = recent.map(\.cpu)
+        memoryTrend = recent.map(\.memory)
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -77,7 +80,7 @@ final class AppModel {
     func stop() {
         loop?.cancel()
         loop = nil
-        history.save(to: StoragePaths.history)
+        if !DemoData.isEnabled { history.save(to: StoragePaths.history) }
     }
 
     private func tick(forceProcesses: Bool = false) async {
@@ -110,7 +113,7 @@ final class AppModel {
                 .map { GroupUsage(name: $0.name, cpuPercent: $0.cpuPercent, memoryBytes: $0.memoryBytes) }
         }
         history.record(time: snapshot.timestamp, cpu: snapshot.system.cpuUsage, memory: snapshot.system.memoryUsage, top: top)
-        if snapshot.timestamp.timeIntervalSince(lastHistorySave) >= 60 {
+        if !DemoData.isEnabled, snapshot.timestamp.timeIntervalSince(lastHistorySave) >= 60 {
             lastHistorySave = snapshot.timestamp
             history.save(to: StoragePaths.history)
         }
@@ -163,7 +166,7 @@ final class AppModel {
         if selection.contains(process.id) { selection.remove(process.id) } else { selection.insert(process.id) }
     }
 
-    func isQuittable(_ process: ProcessSample) -> Bool { process.pid != ownPID }
+    func isQuittable(_ process: ProcessSample) -> Bool { process.pid != ownPID && !DemoData.isEnabled }
 
     func quit(_ process: ProcessSample) {
         quit([process])
