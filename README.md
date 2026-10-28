@@ -30,12 +30,14 @@ curl -fsSL https://raw.githubusercontent.com/ericrisco/mem-slop/main/install.sh 
 ```
 
 The script downloads the latest release, checks its SHA-256, installs `MemSlop.app` into
-`/Applications` (or `~/Applications`) and opens it. Run it again to upgrade.
+`/Applications` (or `~/Applications`), links the `memslop` command and opens the app. Run it
+again to upgrade.
 
 | You want to… | Run |
 | --- | --- |
 | Install a specific version | `curl -fsSL …/install.sh \| bash -s -- --version 1.0.0` |
 | Build from source instead | `curl -fsSL …/install.sh \| bash -s -- --from-source` |
+| Skip the `memslop` command | `curl -fsSL …/install.sh \| bash -s -- --no-cli` |
 | Uninstall (app, settings, data) | `curl -fsSL …/install.sh \| bash -s -- --uninstall` |
 
 Or from a clone: `make install`. You need macOS 14 Sonoma or later. Apple Silicon and Intel are
@@ -76,6 +78,31 @@ server you started in your own terminal.
 - Dry-run mode, an editable rule list, a protected list and an activity log.
 - A **memory freed** counter: today in the panel, and the total since install in the dashboard.
   Processes you quit by hand count too.
+
+**Agents**
+- When a Claude Code, Codex or other agent session ends, what it left running is closed once
+  idle for 5 minutes. No rule needed: the session that wanted it is gone. Same warning and Keep.
+- Works out of the box by noticing the agent process exit. Run `memslop hooks install` (or
+  **Settings → Agents → Connect**) to also catch servers the agent detached, the moment the
+  session ends.
+
+**Command line**
+
+```console
+$ memslop status
+CPU 23%   Memory 71% (22.7 GB of 32.0 GB)   Pressure normal   Swap 1.2 GB
+6 slop processes using 3.9 GB — see them with `memslop ps --slop`
+
+$ memslop ports
+PORT   PID     NAME                  PROJECT                  MEMORY  SLOP
+:3000  51234   node                  shop                     1.8 GB  Next.js dev server
+:8000  51410   python3.12            api                      340 MB  Uvicorn
+
+$ memslop quit :3000
+```
+
+Also `memslop ps [--slop] [--json]` and `memslop ports --json`, handy for agents that need to
+know what is already running before they start another server.
 
 **Dashboard**
 - 24 hours of CPU and memory history. Hover any moment to see which groups were using the memory.

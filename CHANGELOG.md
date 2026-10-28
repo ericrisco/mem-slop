@@ -3,6 +3,19 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - 2026-10-28
+
+### Added
+- **`memslop` command**, bundled in the app and linked by the installer (or Settings → Agents): `status`, `ps [--slop] [--json]`, `ports [--json]`, `quit <pid|:port> [--yes]`, `hooks install|uninstall|status`. Closes from the terminal are logged and count towards memory freed.
+- **Session-end cleanup** (on by default): what an ended agent session left running is closed once idle for 5 minutes, without needing a slop rule, with the usual warning, Keep and re-check.
+  - Works with no setup by noticing the agent process exit (Claude Code, Codex, Gemini CLI and others).
+  - **Session hooks** for Claude Code and Codex (`memslop hooks install`, or Settings → Agents → Connect) also find servers that were detached from the agent, through the session ID Claude Code puts in their environment. `/clear` and `/resume` are ignored.
+- Settings → **Agents** tab: session cleanup toggle, hook status with Connect/Disconnect, command line install.
+- `MEMSLOP_DATA_DIR` to keep data elsewhere (tests, development).
+
+### Changed
+- Pressure sweeps no longer move the regular schedule.
+
 ## [1.1.0] - 2026-10-28
 
 ### Added
@@ -62,6 +75,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Quit a process, a whole group, or a multi-selection. Apps are asked to quit like the Dock does; other processes get SIGTERM, then SIGKILL after 5 s.
 - Core sampling with libproc and Mach (under 1% CPU and ~20 MB while idle).
 
+[1.2.0]: https://github.com/ericrisco/mem-slop/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ericrisco/mem-slop/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ericrisco/mem-slop/releases/tag/v1.0.0
 [0.3.0]: https://github.com/ericrisco/mem-slop/releases/tag/v0.3.0
