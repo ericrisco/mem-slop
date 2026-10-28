@@ -35,6 +35,8 @@ public struct ProcessSample: Identifiable, Hashable, Sendable {
     public let commandLine: String
     /// Lowercased copies for matching and search, computed once per sample.
     public let matchKeys: MatchKeys
+    /// Ports and project; filled in only while someone is looking at the list.
+    public var context: ProcessContext = .empty
 
     public struct MatchKeys: Hashable, Sendable {
         public let name: String

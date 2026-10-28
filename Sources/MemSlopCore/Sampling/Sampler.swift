@@ -12,10 +12,10 @@ public actor Sampler {
 
     public init() {}
 
-    public func sample(includeProcesses: Bool = true) -> MonitorSnapshot {
+    public func sample(includeProcesses: Bool = true, includeContext: Bool = false) -> MonitorSnapshot {
         let system = system.sample()
         if includeProcesses || lastTree.isEmpty {
-            (lastProcesses, lastTree) = processes.sample()
+            (lastProcesses, lastTree) = processes.sample(includeContext: includeContext)
         }
         return MonitorSnapshot(timestamp: Date(), system: system, processes: lastProcesses, tree: lastTree)
     }

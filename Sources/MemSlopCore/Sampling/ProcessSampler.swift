@@ -11,6 +11,10 @@ public final class ProcessSampler {
     private var previous: [ProcessIdentity: Previous] = [:]
     private var argumentsCache: [ProcessIdentity: [String]] = [:]
     private var pathCache: [ProcessIdentity: String] = [:]
+    private var contextCache: [ProcessIdentity: (context: ProcessContext, refreshed: UInt64)] = [:]
+    private let projects = ProjectResolver()
+    /// Ports and working directory change rarely; re-read them at most this often per process.
+    public var contextRefreshNanos: UInt64 = 15_000_000_000
     private let timebase: (numer: UInt64, denom: UInt64)
     private let currentUID = getuid()
 
@@ -21,7 +25,8 @@ public final class ProcessSampler {
     }
 
     /// Returns the inspectable processes of the current user plus the full process tree.
-    public func sample() -> (processes: [ProcessSample], tree: [Int32: ProcessNode]) {
+    /// - Parameter includeContext: also read listening ports and project folders (cached).
+    public func sample(includeContext: Bool = false) -> (processes: [ProcessSample], tree: [Int32: ProcessNode]) {
         let now = UInt64(DispatchTime.now().uptimeNanoseconds)
         var processes: [ProcessSample] = []
         var tree: [Int32: ProcessNode] = [:]
@@ -43,7 +48,7 @@ public final class ProcessSampler {
             }
             previous[identity] = Previous(cpuTimeNanos: cpuTime, wallNanos: now)
 
-            processes.append(ProcessSample(
+            var sample = ProcessSample(
                 id: identity,
                 ppid: entry.ppid,
                 uid: entry.uid,
@@ -54,13 +59,32 @@ public final class ProcessSampler {
                 memoryBytes: usage.ri_phys_footprint,
                 cpuTimeNanos: cpuTime,
                 startDate: Date(timeIntervalSince1970: TimeInterval(identity.startTime) / 1_000_000)
-            ))
+            )
+            if includeContext {
+                sample.context = context(identity, now: now)
+            } else if let cached = contextCache[identity] {
+                sample.context = cached.context
+            }
+            processes.append(sample)
         }
 
         previous = previous.filter { seen.contains($0.key) }
+        contextCache = contextCache.filter { seen.contains($0.key) }
         argumentsCache = argumentsCache.filter { seen.contains($0.key) }
         pathCache = pathCache.filter { tree[$0.key.pid] != nil }
         return (processes, tree)
+    }
+
+    private func context(_ identity: ProcessIdentity, now: UInt64) -> ProcessContext {
+        if let cached = contextCache[identity], now - cached.refreshed < contextRefreshNanos { return cached.context }
+        let directory = ProcessInspector.workingDirectory(identity.pid)
+        let context = ProcessContext(
+            ports: ProcessInspector.listeningPorts(identity.pid),
+            workingDirectory: directory,
+            project: projects.project(for: directory)
+        )
+        contextCache[identity] = (context, now)
+        return context
     }
 
     private func cachedPath(_ identity: ProcessIdentity) -> String {

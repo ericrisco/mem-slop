@@ -98,6 +98,7 @@ public enum StoragePaths {
 
     public static var activityLog: URL { directory.appendingPathComponent("activity.json") }
     public static var history: URL { directory.appendingPathComponent("history.json") }
+    public static var savings: URL { directory.appendingPathComponent("savings.json") }
 }
 
 extension JSONEncoder {
@@ -113,5 +114,35 @@ extension JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
+    }
+}
+
+/// Memory freed since install. Outlives the activity log's 24 h retention.
+public struct SavingsCounter: Sendable, Codable, Equatable {
+    public private(set) var totalBytes: UInt64 = 0
+    public private(set) var processCount: Int = 0
+    public private(set) var since: Date?
+
+    public init() {}
+
+    public mutating func add(_ entries: [ActivityEntry]) {
+        for entry in entries where entry.outcome.freedMemory {
+            totalBytes += entry.memoryBytes
+            processCount += 1
+            if since == nil { since = entry.date }
+        }
+    }
+
+    public static func load(from url: URL) -> SavingsCounter {
+        guard let data = try? Data(contentsOf: url),
+              let counter = try? JSONDecoder.memslop.decode(SavingsCounter.self, from: data) else { return SavingsCounter() }
+        return counter
+    }
+
+    public func save(to url: URL) {
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let data = try? JSONEncoder.memslop.encode(self) {
+            try? data.write(to: url, options: .atomic)
+        }
     }
 }

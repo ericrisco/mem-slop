@@ -17,12 +17,44 @@ public struct ReaperConfiguration: Sendable, Codable, Equatable {
     public var dryRun = false
     public var rules = ProcessRule.defaultSlop
     public var protected = ProcessRule.defaultProtected
+    /// Sweep early, with a shorter idle window, when memory pressure stays critical.
+    public var cleanOnPressure = true
     /// Testing aid: replaces the interval-based window (seconds). Never set from the UI.
     public var windowOverride: TimeInterval?
+
+    /// Under critical pressure a process only needs to be idle this long (or the interval, if shorter).
+    public static let pressureWindow: TimeInterval = 5 * 60
+    /// How long pressure must stay critical before an early sweep.
+    public static let pressureDelay: TimeInterval = 30
+    /// Minimum time between two pressure sweeps.
+    public static let pressureCooldown: TimeInterval = 5 * 60
 
     public init() {}
 
     public var window: TimeInterval { windowOverride ?? TimeInterval(intervalMinutes * 60) }
+    public var pressureWindow: TimeInterval { min(window, Self.pressureWindow) }
+
+    private enum CodingKeys: String, CodingKey {
+        case isEnabled, intervalMinutes, cpuThreshold, memoryChangeFraction, memoryChangeFloor, notifyBefore
+        case graceSeconds, dryRun, rules, protected, cleanOnPressure
+    }
+
+    /// Settings saved by older versions lack newer keys; every key falls back to its default.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = ReaperConfiguration()
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? defaults.isEnabled
+        intervalMinutes = try container.decodeIfPresent(Int.self, forKey: .intervalMinutes) ?? defaults.intervalMinutes
+        cpuThreshold = try container.decodeIfPresent(Double.self, forKey: .cpuThreshold) ?? defaults.cpuThreshold
+        memoryChangeFraction = try container.decodeIfPresent(Double.self, forKey: .memoryChangeFraction) ?? defaults.memoryChangeFraction
+        memoryChangeFloor = try container.decodeIfPresent(UInt64.self, forKey: .memoryChangeFloor) ?? defaults.memoryChangeFloor
+        notifyBefore = try container.decodeIfPresent(Bool.self, forKey: .notifyBefore) ?? defaults.notifyBefore
+        graceSeconds = try container.decodeIfPresent(Int.self, forKey: .graceSeconds) ?? defaults.graceSeconds
+        dryRun = try container.decodeIfPresent(Bool.self, forKey: .dryRun) ?? defaults.dryRun
+        rules = try container.decodeIfPresent([ProcessRule].self, forKey: .rules) ?? defaults.rules
+        protected = try container.decodeIfPresent([ProcessRule].self, forKey: .protected) ?? defaults.protected
+        cleanOnPressure = try container.decodeIfPresent(Bool.self, forKey: .cleanOnPressure) ?? defaults.cleanOnPressure
+    }
 }
 
 /// A process the reaper wants to close, with the evidence for it.
@@ -75,9 +107,10 @@ public struct ReaperPolicy: Sendable {
         regularAppPIDs: Set<Int32>,
         kept: Set<ProcessIdentity>,
         excluding excludedPIDs: Set<Int32> = [],
+        window: TimeInterval? = nil,
         now: Date
     ) -> [ReapCandidate] {
-        let window = configuration.window
+        let window = window ?? configuration.window
         let arguments = Dictionary(snapshot.processes.map { ($0.pid, $0.arguments) }, uniquingKeysWith: { first, _ in first })
         let byPID = Dictionary(snapshot.processes.map { ($0.pid, $0) }, uniquingKeysWith: { first, _ in first })
         var children: [Int32: [Int32]] = [:]
