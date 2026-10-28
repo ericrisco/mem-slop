@@ -268,3 +268,46 @@ private struct World {
         #expect(ReaperPolicy.wasActive(before: before, after: served, memoryFloor: 10 * 1_048_576))
     }
 }
+
+@Suite struct LearningPeriodTests {
+    private func entry(_ pid: Int32, _ outcome: ActivityEntry.Outcome, mb: UInt64) -> ActivityEntry {
+        ActivityEntry(date: Date(), name: "node", pid: pid, group: "Node.js", rule: "Vite", reason: "orphaned",
+                      memoryBytes: mb * 1_048_576, commandLine: "node vite", outcome: outcome)
+    }
+
+    @Test func learnsForADayThenWaitsForTheUser() {
+        let start = Date(timeIntervalSince1970: 0)
+        var period = LearningPeriod(started: start)
+        #expect(period.phase(at: start + 3600) == .learning(remaining: 23 * 3600))
+        #expect(period.forcesDryRun(at: start + 3600))
+        #expect(period.phase(at: start + 24 * 3600) == .awaitingDecision)
+        #expect(period.forcesDryRun(at: start + 48 * 3600))
+        period.decide()
+        #expect(period.phase(at: start + 48 * 3600) == .done)
+        #expect(!period.forcesDryRun(at: start + 48 * 3600))
+    }
+
+    @Test func countsEachProcessOnce() {
+        var period = LearningPeriod(started: Date())
+        period.record([entry(1, .wouldQuit, mb: 300), entry(2, .wouldQuit, mb: 100), entry(3, .kept, mb: 999)])
+        period.record([entry(1, .wouldQuit, mb: 310)])
+        #expect(period.processCount == 2)
+        #expect(period.memoryBytes == 410 * 1_048_576)
+    }
+
+    @Test func endingEarlyAsksRightAway() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        var period = LearningPeriod(started: now)
+        period.endNow(at: now)
+        #expect(period.phase(at: now) == .awaitingDecision)
+        #expect(LearningPeriod.skipped(at: now).phase(at: now) == .done)
+    }
+
+    @Test func survivesEncoding() throws {
+        var period = LearningPeriod(started: Date(timeIntervalSince1970: 5))
+        period.record([entry(1, .wouldQuit, mb: 1)])
+        period.announced = true
+        let decoded = try JSONDecoder().decode(LearningPeriod.self, from: JSONEncoder().encode(period))
+        #expect(decoded == period)
+    }
+}
