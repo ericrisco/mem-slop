@@ -169,6 +169,6 @@ say "MemSlop ${installed_version} installed."
 
 if [ "$launch" -eq 1 ]; then
   open "$target"
-  say "Look for it in your menu bar. Auto-clean starts after a full interval (10 min by default)."
+  say "Look for it in your menu bar. The first day it closes nothing: it shows what it would close, then asks."
   say "Clean up after Claude Code and Codex sessions: memslop hooks install"
 fi
