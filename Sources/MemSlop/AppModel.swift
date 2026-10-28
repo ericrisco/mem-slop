@@ -43,6 +43,7 @@ final class AppModel {
     }
 
     let reaper = ReaperEngine()
+    let updater = Updater()
     private(set) var history = DemoData.isEnabled ? DemoData.history(now: Date()) : MetricHistory.load(from: StoragePaths.history)
     /// Biggest groups right now, ignoring the search filter.
     private(set) var topGroups: [ProcessGroup] = []
@@ -68,6 +69,8 @@ final class AppModel {
 
     func start() {
         guard loop == nil else { return }
+        updater.isBusy = { [weak self] in self.map { !$0.reaper.pending.isEmpty || $0.reaper.isClosing } ?? false }
+        updater.start()
         let recent = history.fine.suffix(Self.trendLength)
         cpuTrend = recent.map(\.cpu)
         memoryTrend = recent.map(\.memory)

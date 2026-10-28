@@ -57,6 +57,7 @@ private struct GeneralSettings: View {
                     Text("5 seconds").tag(5.0)
                 }
             }
+            UpdatesSection()
             Section("Startup") {
                 Toggle("Open MemSlop at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in setLaunchAtLogin(enabled) }
@@ -257,10 +258,68 @@ private struct AboutSettings: View {
             Text("Your AI agents leave slop running. MemSlop cleans it up.")
                 .font(.callout)
             Link("github.com/ericrisco/mem-slop", destination: URL(string: "https://github.com/ericrisco/mem-slop")!)
-            Text("MIT License · No network, no telemetry.")
+            Text("MIT License · No telemetry. Only network use: a daily update check to GitHub.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Updates
+
+private struct UpdatesSection: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        @Bindable var updater = model.updater
+        Section("Updates") {
+            Toggle("Check for updates automatically", isOn: $updater.checkAutomatically)
+            Toggle("Install updates automatically", isOn: $updater.installAutomatically)
+                .disabled(!updater.checkAutomatically)
+            LabeledContent {
+                switch updater.state {
+                case .checking:
+                    ProgressView().controlSize(.small)
+                case let .available(release):
+                    Button("Install \(release.version.description) and Relaunch") { Task { await updater.install(release) } }
+                case .installing:
+                    ProgressView().controlSize(.small)
+                default:
+                    Button("Check Now") { Task { await updater.check() } }
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("MemSlop \(Updater.currentVersion?.description ?? "dev")")
+                    Text(status(updater))
+                        .font(.caption)
+                        .foregroundStyle(isFailure(updater.state) ? Theme.danger : .secondary)
+                }
+            }
+            if let release = updater.availableRelease {
+                Text(release.notes.isEmpty ? "No release notes." : release.notes)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(8)
+                Link("Release page", destination: release.pageURL).font(.caption)
+            }
+        }
+    }
+
+    private func status(_ updater: Updater) -> String {
+        switch updater.state {
+        case .checking: return "Checking GitHub…"
+        case let .available(release): return "Version \(release.version) is available."
+        case let .installing(release): return "Installing \(release.version)… MemSlop will relaunch."
+        case let .failed(message): return message
+        case .upToDate, .idle:
+            guard let last = updater.lastCheck else { return "Never checked." }
+            return "Up to date · checked \(last.formatted(.relative(presentation: .named)))."
+        }
+    }
+
+    private func isFailure(_ state: Updater.State) -> Bool {
+        if case .failed = state { return true }
+        return false
     }
 }

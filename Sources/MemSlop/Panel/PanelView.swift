@@ -199,7 +199,14 @@ private struct PanelFooter: View {
     var body: some View {
         HStack(spacing: 8) {
             let selected = model.selectedProcesses
-            if selected.isEmpty {
+            if selected.isEmpty, let release = model.updater.availableRelease, !model.updater.installAutomatically {
+                Label("MemSlop \(release.version) is available", systemImage: "arrow.down.app.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.cpu)
+                Spacer()
+                Button("Update") { Task { await model.updater.install(release) } }
+                    .controlSize(.small)
+            } else if selected.isEmpty {
                 Text("\(model.snapshot.processes.count) processes · \(model.groups.count) group\(model.groups.count == 1 ? "" : "s")")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
