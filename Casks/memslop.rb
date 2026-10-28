@@ -3,8 +3,8 @@
 #   brew install --cask memslop
 # The release workflow bumps version and sha256 on every release.
 cask "memslop" do
-  version "1.3.0"
-  sha256 "4dab34f1461a74edc3b67c26affd5ee8aa05a892ddbca8a13b3d143eadb3dc3c"
+  version "1.4.0"
+  sha256 "69c263bff1159a3536a53bc843810d0685b5cc2c64ce27f7aa51de3718de88cc"
 
   url "https://github.com/ericrisco/mem-slop/releases/download/v#{version}/MemSlop-#{version}.zip"
   name "MemSlop"
