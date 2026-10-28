@@ -17,14 +17,14 @@ cask "memslop" do
   end
 
   auto_updates true
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "MemSlop.app"
   binary "#{appdir}/MemSlop.app/Contents/Helpers/memslop"
 
   # Ad-hoc signed, not notarized: drop the quarantine flag like the curl installer does.
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/MemSlop.app"]
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/MemSlop.app"]
   end
 
   uninstall quit: "com.ericrisco.memslop"
