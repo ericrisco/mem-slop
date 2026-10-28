@@ -3,6 +3,19 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-10-28
+
+### Added
+- **Ports and projects** in the process list: each process shows the TCP ports it listens on and the project folder it runs in (nearest folder with `.git` or a package manifest). Groups show the union of their ports.
+- **Group by project**: a toggle next to the sort control groups processes by repository instead of by kind. The choice is remembered.
+- Search also matches ports (`3000`, `:3000`) and project names.
+- **Clean early when memory is critical** (on by default): after 30 s of critical memory pressure, auto-clean checks right away and accepts processes idle for 5 minutes, at most once every 5 minutes. Same rules, warning and Keep button.
+- **Memory freed** pill in the panel header, and the total since install in the dashboard. Processes quit by hand are now written to the activity log as *Manual* and count too.
+
+### Changed
+- Ports and folders are read only while the list or dashboard is open, at most every 15 s per process.
+- Saved auto-clean settings from older versions load with new options at their defaults instead of being reset.
+
 ## [1.0.0] - 2026-10-27
 
 ### Added
@@ -49,6 +62,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Quit a process, a whole group, or a multi-selection. Apps are asked to quit like the Dock does; other processes get SIGTERM, then SIGKILL after 5 s.
 - Core sampling with libproc and Mach (under 1% CPU and ~20 MB while idle).
 
+[1.1.0]: https://github.com/ericrisco/mem-slop/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ericrisco/mem-slop/releases/tag/v1.0.0
 [0.3.0]: https://github.com/ericrisco/mem-slop/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ericrisco/mem-slop/releases/tag/v0.2.0

@@ -60,7 +60,10 @@ server you started in your own terminal.
 - Processes grouped the way you think about them. All Chrome helpers go under *Google Chrome*.
   Interpreters go under their family: *Python* (including `uv`), *Node.js*, *AI Agents* (Claude
   Code, Codex, Gemini CLI…), *Databases*, *Containers*…
-- Sort by CPU or memory, search by name, PID or command line.
+- Every row shows the **ports** it listens on (`:3000`, `:8000`) and the **project** it runs in, so
+  `node` becomes "the Next.js of *shop* on :3000".
+- Group by kind or **by project**. Sort by CPU or memory. Search by name, PID, port, project or
+  command line.
 - Quit one process, a whole group or a selection. Apps are asked to quit like the Dock does.
   Other processes get `SIGTERM`, then `SIGKILL` if they ignore it for 5 seconds.
 
@@ -68,7 +71,11 @@ server you started in your own terminal.
 - Every 10 minutes (10, 15, 20, 30 or 60), MemSlop closes dev slop that has been idle for that
   whole time.
 - A 60-second warning with **Keep** and **Close now**, in the panel and as a notification.
+- When memory pressure stays **critical** for 30 seconds, it checks right away instead of waiting.
+  Under pressure, 5 idle minutes are enough. Same rules, same warning, same Keep button.
 - Dry-run mode, an editable rule list, a protected list and an activity log.
+- A **memory freed** counter: today in the panel, and the total since install in the dashboard.
+  Processes you quit by hand count too.
 
 **Dashboard**
 - 24 hours of CPU and memory history. Hover any moment to see which groups were using the memory.
@@ -101,7 +108,8 @@ restored to its default in **Settings → Slop rules / Protected**.
 ## Privacy
 
 MemSlop makes no network requests and has no telemetry or accounts. History and the activity
-log stay in `~/Library/Application Support/MemSlop` and are pruned after 24 hours. It needs no
+log stay in `~/Library/Application Support/MemSlop` and are pruned after 24 hours (only the
+"freed since install" total is kept). It needs no
 special permissions. It only reads and signals your own processes, and asks once to show
 notifications.
 
