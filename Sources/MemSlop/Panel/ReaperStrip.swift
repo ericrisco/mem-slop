@@ -9,6 +9,8 @@ struct ReaperStrip: View {
         let reaper = model.reaper
         if !reaper.pending.isEmpty, let deadline = reaper.pendingDeadline {
             PendingCard(deadline: deadline)
+        } else if reaper.learningPhase == .awaitingDecision {
+            LearningSummaryCard()
         } else {
             HStack(spacing: 8) {
                 Image(systemName: reaper.configuration.isEnabled ? "sparkles" : "sparkles.slash")
@@ -18,7 +20,12 @@ struct ReaperStrip: View {
                     if reaper.configuration.isEnabled {
                         HStack(spacing: 4) {
                             Text("Auto-clean every \(reaper.configuration.intervalMinutes) min")
-                            if reaper.isDryRun {
+                            if reaper.isLearning {
+                                Text("LEARNING")
+                                    .font(.system(size: 8.5, weight: .heavy))
+                                    .padding(.horizontal, 4)
+                                    .background(Theme.cpu.opacity(0.2), in: Capsule())
+                            } else if reaper.isDryRun {
                                 Text("DRY RUN")
                                     .font(.system(size: 8.5, weight: .heavy))
                                     .padding(.horizontal, 4)
@@ -55,19 +62,27 @@ struct ReaperStrip: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+            .safeAreaInset(edge: .bottom, spacing: 0) { CloseAllSlopRow() }
             .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
 
     @ViewBuilder private func statusLine(_ reaper: ReaperEngine) -> some View {
         HStack(spacing: 4) {
-            if reaper.isClosing {
+            if case let .learning(remaining) = reaper.learningPhase {
+                Text("Closes nothing for \(Formatting.duration(remaining))")
+                if reaper.learning.processCount > 0 {
+                    Text("· would close \(reaper.learning.processCount) · \(Formatting.bytes(reaper.learning.memoryBytes))")
+                }
+            } else if reaper.isClosing {
                 Text("Closing…")
             } else {
                 Text("Next check")
                 Text(reaper.nextSweep, style: .relative)
             }
-            if reaper.freedToday > 0 {
+            if reaper.isLearning {
+                EmptyView()
+            } else if reaper.freedToday > 0 {
                 Text("· freed \(Formatting.bytes(reaper.freedToday)) today")
             } else if let summary = reaper.lastSummary {
                 Text("· \(summary)")
@@ -120,6 +135,62 @@ private struct PendingCard: View {
         .padding(10)
         .background(Theme.slop.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.slop.opacity(0.35)))
+    }
+}
+
+/// One click (plus a confirming second) closes every process the slop rules match.
+private struct CloseAllSlopRow: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let slop = model.slopProcesses
+        if !slop.isEmpty {
+            HStack(spacing: 6) {
+                Text("\(slop.count) slop process\(slop.count == 1 ? "" : "es") running · \(Formatting.bytes(slop.reduce(0) { $0 + $1.memoryBytes }))")
+                    .font(.system(size: 10.5).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                ConfirmButton(title: "Close all slop", confirmTitle: "Close \(slop.count)?", systemImage: "trash") {
+                    model.quitAllSlop()
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+        }
+    }
+}
+
+/// End of the first day: what MemSlop would have done, and the choice to turn it on.
+private struct LearningSummaryCard: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let learning = model.reaper.learning
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Your first day with MemSlop", systemImage: "graduationcap.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.cpu)
+            Text(learning.processCount == 0
+                 ? "Nothing idle needed closing. Turn auto-clean on to keep it that way."
+                 : "It would have closed \(learning.processCount) idle process\(learning.processCount == 1 ? "" : "es") and freed \(Formatting.bytes(learning.memoryBytes)). Everything is in the activity log.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button("Turn on auto-clean") { model.reaper.finishLearning(enable: true) }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                Button("Keep dry run") { model.reaper.finishLearning(enable: false) }
+                    .controlSize(.small)
+                Spacer()
+                Button("See log") { WindowManager.shared.show(.dashboard) }
+                    .buttonStyle(.link)
+                    .font(.system(size: 11))
+            }
+        }
+        .padding(10)
+        .background(Theme.cpu.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.cpu.opacity(0.3)))
     }
 }
 

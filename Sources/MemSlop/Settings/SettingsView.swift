@@ -112,6 +112,7 @@ private struct AutoCleanSettings: View {
                     }
                 }
             }
+            LearningSection()
             Section("Safety") {
                 Toggle("Warn \(reaper.configuration.graceSeconds) s before closing, with a Keep button", isOn: $reaper.configuration.notifyBefore)
                 Toggle("Dry run: only log what would be closed", isOn: $reaper.configuration.dryRun)
@@ -321,5 +322,46 @@ private struct UpdatesSection: View {
     private func isFailure(_ state: Updater.State) -> Bool {
         if case .failed = state { return true }
         return false
+    }
+}
+
+// MARK: - First day
+
+private struct LearningSection: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let reaper = model.reaper
+        switch reaper.learningPhase {
+        case .done:
+            EmptyView()
+        case let .learning(remaining):
+            Section("First day") {
+                LabeledContent {
+                    Button("End now") { reaper.endLearningNow() }
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Learning: nothing is closed for \(Formatting.duration(remaining))")
+                        Text("So far it would have closed \(reaper.learning.processCount) (\(Formatting.bytes(reaper.learning.memoryBytes))). You will get a summary and choose.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        case .awaitingDecision:
+            Section("First day") {
+                LabeledContent {
+                    HStack {
+                        Button("Keep dry run") { reaper.finishLearning(enable: false) }
+                        Button("Turn on") { reaper.finishLearning(enable: true) }.buttonStyle(.borderedProminent)
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Your first day is over")
+                        Text("It would have closed \(reaper.learning.processCount) process\(reaper.learning.processCount == 1 ? "" : "es") (\(Formatting.bytes(reaper.learning.memoryBytes))).")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
     }
 }

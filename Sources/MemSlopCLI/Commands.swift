@@ -11,6 +11,7 @@ enum Commands {
       memslop ps [--slop] [--json]         processes grouped by project, with ports
       memslop ports [--json]               everything listening on a TCP port
       memslop quit <pid|:port>... [--yes]  quit processes (SIGTERM, then SIGKILL)
+      memslop quit --slop [--yes]          quit everything the slop rules match
       memslop hooks install [--claude] [--codex]
                                            clean up when an agent session ends
       memslop hooks uninstall|status [--claude] [--codex]
@@ -131,13 +132,20 @@ enum Commands {
     static func quit(_ arguments: [String]) async throws -> Int32 {
         let yes = arguments.contains("--yes") || arguments.contains("-y")
         let targets = arguments.filter { !$0.hasPrefix("-") }
-        guard !targets.isEmpty else {
-            Terminal.error("say what to quit: a PID or a :port, e.g. `memslop quit :3000`")
+        let allSlop = arguments.contains("--slop")
+        guard !targets.isEmpty || allSlop else {
+            Terminal.error("say what to quit: a PID, a :port or --slop, e.g. `memslop quit :3000`")
             return 64
         }
         let reading = read()
         let appPIDs = Set(reading.snapshot.processes.filter { $0.executablePath.hasSuffix("/MemSlop.app/Contents/MacOS/MemSlop") }.map(\.pid))
-        var chosen: [ProcessSample] = []
+        var chosen: [ProcessSample] = allSlop
+            ? reading.snapshot.processes.filter { reading.slopRule($0) != nil && !appPIDs.contains($0.pid) }
+            : []
+        if allSlop, chosen.isEmpty {
+            print("No slop running.")
+            return 0
+        }
         for target in targets {
             let matches: [ProcessSample]
             if target.hasPrefix(":"), let port = UInt16(target.dropFirst()) {

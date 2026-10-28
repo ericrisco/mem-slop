@@ -61,6 +61,16 @@ final class AppModel {
     @ObservationIgnored private var lastProcessSample = Date.distantPast
     let ownPID = getpid()
 
+    /// Every running process a slop rule matches (protected ones never are).
+    var slopProcesses: [ProcessSample] {
+        snapshot.processes.filter { slopMatches[$0.id] != nil && isQuittable($0) }
+    }
+
+    /// The panel's one-click cleanup: quits all slop now, idle or not. Logged as manual.
+    func quitAllSlop() {
+        quit(slopProcesses)
+    }
+
     var selectedProcesses: [ProcessSample] {
         snapshot.processes.filter { selection.contains($0.id) }
     }

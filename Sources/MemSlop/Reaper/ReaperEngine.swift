@@ -25,6 +25,8 @@ final class ReaperEngine {
     private(set) var isClosing = false
     /// Memory freed since install, across auto-clean and manual quits.
     private(set) var savings: SavingsCounter
+    /// First day after install: nothing is closed, only counted.
+    private(set) var learning: LearningPeriod
 
     @ObservationIgnored private var tracker = IdleTracker()
     @ObservationIgnored private let terminator = ProcessTerminator()
@@ -42,11 +44,15 @@ final class ReaperEngine {
     /// `--reaper-dry-run`: never closes anything this session, whatever the settings say.
     @ObservationIgnored private let forceDryRun: Bool
 
-    var isDryRun: Bool { configuration.dryRun || forceDryRun }
+    var isDryRun: Bool { configuration.dryRun || forceDryRun || isLearning }
+    var isLearning: Bool { learning.forcesDryRun(at: Date()) }
+    var learningPhase: LearningPeriod.Phase { learning.phase(at: Date()) }
 
     var policy: ReaperPolicy { ReaperPolicy(configuration: configuration) }
 
     init() {
+        let hadSettings = UserDefaults.standard.data(forKey: Self.defaultsKey) != nil
+        learning = DemoData.isEnabled ? .skipped(at: Date()) : Self.loadLearning(hadSettings: hadSettings)
         var configuration = Self.load()
         configuration.windowOverride = Self.testWindow()
         forceDryRun = CommandLine.arguments.contains("--reaper-dry-run") || DemoData.isEnabled
@@ -95,6 +101,11 @@ final class ReaperEngine {
         pending.removeAll { !alive.contains($0.id) }
         if pending.isEmpty, pendingDeadline != nil { pendingDeadline = nil }
 
+        if case .awaitingDecision = learning.phase(at: now), !learning.announced, !DemoData.isEnabled {
+            learning.announced = true
+            saveLearning()
+            notifier.learningFinished(processes: learning.processCount, memory: learning.memoryBytes)
+        }
         guard configuration.isEnabled, !isClosing, !DemoData.isEnabled else { return }
         let underPressure = pressureTrigger.observe(snapshot.system.pressure, at: now) && configuration.cleanOnPressure
         if let deadline = pendingDeadline {
@@ -256,6 +267,10 @@ final class ReaperEngine {
     }
 
     private func append(_ entries: [ActivityEntry]) {
+        if learning.phase(at: Date()) != .done {
+            learning.record(entries)
+            saveLearning()
+        }
         log.append(entries)
         savings.add(entries)
         if !DemoData.isEnabled { savings.save(to: StoragePaths.savings) }
@@ -289,6 +304,25 @@ final class ReaperEngine {
         notifier.withdraw()
     }
 
+    /// Ends the first day: turn auto-clean on for real, or keep it as a dry run.
+    func finishLearning(enable: Bool) {
+        learning.decide()
+        saveLearning()
+        if enable {
+            configuration.dryRun = false
+            configuration.isEnabled = true
+        } else {
+            configuration.dryRun = true
+        }
+    }
+
+    /// Skips the rest of the first day and shows the summary now.
+    func endLearningNow() {
+        learning.endNow(at: Date())
+        learning.announced = true
+        saveLearning()
+    }
+
     func restoreDefaultRules() {
         configuration.rules = ProcessRule.defaultSlop
     }
@@ -310,7 +344,24 @@ final class ReaperEngine {
         Set(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.map(\.processIdentifier))
     }
 
-    private static let defaultsKey = "reaperConfiguration"
+    private static let defaultsKey = ReaperConfiguration.defaultsKey
+    private static let learningKey = "learningPeriod"
+
+    /// A fresh install starts learning; one that already had settings is an upgrade and skips it.
+    private static func loadLearning(hadSettings: Bool) -> LearningPeriod {
+        if let data = UserDefaults.standard.data(forKey: learningKey),
+           let period = try? JSONDecoder().decode(LearningPeriod.self, from: data) {
+            return period
+        }
+        let period = hadSettings ? LearningPeriod.skipped(at: Date()) : LearningPeriod(started: Date())
+        if let data = try? JSONEncoder().encode(period) { UserDefaults.standard.set(data, forKey: learningKey) }
+        return period
+    }
+
+    private func saveLearning() {
+        guard !DemoData.isEnabled, let data = try? JSONEncoder().encode(learning) else { return }
+        UserDefaults.standard.set(data, forKey: Self.learningKey)
+    }
 
     private static func load() -> ReaperConfiguration {
         guard let data = UserDefaults.standard.data(forKey: defaultsKey),

@@ -50,6 +50,13 @@ final class ReaperNotifier: NSObject, UNUserNotificationCenterDelegate {
              body: "Closed \(closed) idle process\(closed == 1 ? "" : "es").", actionable: false)
     }
 
+    func learningFinished(processes: Int, memory: UInt64) {
+        let body = processes == 0
+            ? "Nothing idle needed closing. Open MemSlop to turn auto-clean on."
+            : "It would have closed \(processes) idle process\(processes == 1 ? "" : "es"), freeing \(Formatting.bytes(memory)). Open MemSlop to turn auto-clean on."
+        post(id: "memslop.learning", title: "Your first day with MemSlop", body: body, actionable: false)
+    }
+
     func withdraw() {
         center?.removeDeliveredNotifications(withIdentifiers: [Self.pendingID])
         center?.removePendingNotificationRequests(withIdentifiers: [Self.pendingID])
