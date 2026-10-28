@@ -76,6 +76,18 @@ The command and the app never share a file. The command writes one JSON file per
 session leftovers, plus activity from `memslop quit` so it counts towards memory freed.
 `MEMSLOP_DATA_DIR` moves all data elsewhere for tests.
 
+## Updates
+
+`ReleaseInfo` parses GitHub's latest-release response (drafts, pre-releases and releases without
+`MemSlop.zip` + `.sha256` are ignored). `Updater` checks a minute after launch and then daily.
+Installing downloads the zip, checks its SHA-256, unpacks it, requires the same bundle identifier,
+the announced version and a valid code signature, stages it as `MemSlop.app.new` next to the
+running app, and hands over to a detached script that waits for the app to quit, swaps the
+bundles (restoring the old one if the swap fails) and reopens it.
+
+The release workflow also bumps `Casks/memslop.rb` on `main`; the cask declares
+`auto_updates true` so Homebrew leaves upgrades to the app.
+
 ## Performance notes
 
 - The menu bar image is drawn with AppKit, not `ImageRenderer`. The renderer allocated about

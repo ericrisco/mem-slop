@@ -40,6 +40,17 @@ again to upgrade.
 | Skip the `memslop` command | `curl -fsSL …/install.sh \| bash -s -- --no-cli` |
 | Uninstall (app, settings, data) | `curl -fsSL …/install.sh \| bash -s -- --uninstall` |
 
+**With Homebrew:**
+
+```bash
+brew tap ericrisco/memslop https://github.com/ericrisco/mem-slop
+brew install --cask memslop
+```
+
+**Updates are automatic.** MemSlop checks GitHub once a day, verifies the download (SHA-256, bundle
+identifier, version, code signature) and relaunches itself on the new version. Turn either step
+off in **Settings → General → Updates**.
+
 Or from a clone: `make install`. You need macOS 14 Sonoma or later. Apple Silicon and Intel are
 both supported.
 
@@ -134,7 +145,8 @@ restored to its default in **Settings → Slop rules / Protected**.
 
 ## Privacy
 
-MemSlop makes no network requests and has no telemetry or accounts. History and the activity
+MemSlop has no telemetry or accounts. Its only network request is a daily check of the latest
+release on GitHub, which you can turn off in Settings. History and the activity
 log stay in `~/Library/Application Support/MemSlop` and are pruned after 24 hours (only the
 "freed since install" total is kept). It needs no
 special permissions. It only reads and signals your own processes, and asks once to show

@@ -3,6 +3,16 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-10-28
+
+### Added
+- **Automatic updates**: a daily check of the latest GitHub release. Updates are downloaded, verified (SHA-256, bundle identifier, version, code signature), installed in place and relaunched. Both checking and installing can be turned off in Settings → General → Updates, with *Check Now* and release notes. Automatic installs wait for any pending cleanup warning.
+- **Homebrew cask**: `brew tap ericrisco/memslop https://github.com/ericrisco/mem-slop && brew install --cask memslop`. It links the `memslop` command. Releases bump the cask automatically.
+- An "Update" button in the panel when automatic install is off.
+
+### Changed
+- Privacy: the update check is MemSlop's only network request.
+
 ## [1.2.0] - 2026-10-28
 
 ### Added
@@ -75,6 +85,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Quit a process, a whole group, or a multi-selection. Apps are asked to quit like the Dock does; other processes get SIGTERM, then SIGKILL after 5 s.
 - Core sampling with libproc and Mach (under 1% CPU and ~20 MB while idle).
 
+[1.3.0]: https://github.com/ericrisco/mem-slop/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ericrisco/mem-slop/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ericrisco/mem-slop/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ericrisco/mem-slop/releases/tag/v1.0.0
