@@ -31,8 +31,14 @@ final class ReaperEngine {
     @ObservationIgnored private let notifier: ReaperNotifier
     @ObservationIgnored private var sweepRequested = false
     @ObservationIgnored private var pressureTrigger = PressureTrigger()
+    @ObservationIgnored private var sessions = AgentSessionTracker()
+    @ObservationIgnored private let inbox = Inbox()
+    @ObservationIgnored private var lastLeftoverCheck = Date.distantPast
+    /// Processes left running by agent sessions that ended, waiting to go idle.
+    private(set) var leftovers: [ProcessIdentity: SessionLeftover] = [:]
     /// Idle window used by the pending sweep: shorter when it was triggered by memory pressure.
     @ObservationIgnored private var pendingWindow: TimeInterval?
+    @ObservationIgnored private var pendingLeftoversOnly = false
     /// `--reaper-dry-run`: never closes anything this session, whatever the settings say.
     @ObservationIgnored private let forceDryRun: Bool
 
@@ -83,6 +89,8 @@ final class ReaperEngine {
         guard processesSampled else { return }
         tracker.record(snapshot.processes, at: now)
         let alive = Set(snapshot.processes.map(\.id))
+        if !DemoData.isEnabled { collectLeftovers(snapshot) }
+        leftovers = leftovers.filter { alive.contains($0.key) && now.timeIntervalSince($0.value.endedAt) < 24 * 3600 }
         kept.formIntersection(alive)
         pending.removeAll { !alive.contains($0.id) }
         if pending.isEmpty, pendingDeadline != nil { pendingDeadline = nil }
@@ -95,22 +103,64 @@ final class ReaperEngine {
             sweep(snapshot)
         } else if underPressure {
             sweep(snapshot, window: configuration.pressureWindow)
+        } else if configuration.cleanSessionLeftovers, !leftovers.isEmpty, now.timeIntervalSince(lastLeftoverCheck) >= 30 {
+            // Leftovers are checked every 30 s rather than waiting for the next scheduled sweep.
+            lastLeftoverCheck = now
+            sweep(snapshot, leftoversOnly: true)
         }
+    }
+
+    /// Applies session-end events from hooks and the agent-exit tracker.
+    private func collectLeftovers(_ snapshot: MonitorSnapshot) {
+        for leftover in sessions.observe(snapshot) where leftovers[leftover.identity] == nil {
+            leftovers[leftover.identity] = leftover
+        }
+        guard inbox.hasPending else { return }
+        let alive = Set(snapshot.processes.map(\.id))
+        for event in inbox.drain() {
+            switch event.kind {
+            case .sessionEnded:
+                // Events older than 30 min (app was not running) are stale: PIDs may have moved on.
+                guard snapshot.timestamp.timeIntervalSince(event.date) < 30 * 60 else { continue }
+                for identity in event.processes where alive.contains(identity) {
+                    leftovers[identity] = SessionLeftover(identity: identity, agent: event.agent ?? "Agent", endedAt: event.date)
+                }
+            case .activity:
+                append(event.activity)
+            }
+        }
+    }
+
+    /// Everything that may be closed right now: rule-matched slop and, if enabled, session leftovers.
+    private func currentCandidates(_ snapshot: MonitorSnapshot, window: TimeInterval?, leftoversOnly: Bool) -> [ReapCandidate] {
+        let apps = Self.regularAppPIDs()
+        var candidates = leftoversOnly ? [] : policy.candidates(
+            in: snapshot, tracker: tracker, regularAppPIDs: apps, kept: kept, excluding: [getpid()], window: window, now: snapshot.timestamp
+        )
+        if configuration.cleanSessionLeftovers {
+            let seen = Set(candidates.map(\.id))
+            candidates += policy.leftoverCandidates(
+                in: snapshot, leftovers: leftovers, tracker: tracker, regularAppPIDs: apps, kept: kept,
+                excluding: [getpid()], window: configuration.leftoverWindow, now: snapshot.timestamp
+            ).filter { !seen.contains($0.id) }
+        }
+        return candidates.sorted { $0.process.memoryBytes > $1.process.memoryBytes }
     }
 
     func requestSweep() {
         sweepRequested = true
     }
 
-    /// - Parameter window: a shorter idle window for pressure sweeps; `nil` uses the interval.
-    private func sweep(_ snapshot: MonitorSnapshot, window: TimeInterval? = nil) {
-        sweepRequested = false
+    /// - Parameters:
+    ///   - window: a shorter idle window for pressure sweeps; `nil` uses the interval.
+    ///   - leftoversOnly: only look at what ended agent sessions left behind.
+    private func sweep(_ snapshot: MonitorSnapshot, window: TimeInterval? = nil, leftoversOnly: Bool = false) {
         let now = snapshot.timestamp
+        let candidates = currentCandidates(snapshot, window: window, leftoversOnly: leftoversOnly)
+        // Quiet leftover checks leave no trace unless they find something.
+        if leftoversOnly, candidates.isEmpty { return }
+        sweepRequested = false
         lastSweep = now
-        let candidates = policy.candidates(
-            in: snapshot, tracker: tracker, regularAppPIDs: Self.regularAppPIDs(), kept: kept,
-            excluding: [getpid()], window: window, now: now
-        )
         guard !candidates.isEmpty else {
             lastSummary = window == nil ? "Nothing idle to clean" : "Memory critical · nothing idle to clean"
             // A pressure sweep does not move the regular schedule.
@@ -118,6 +168,7 @@ final class ReaperEngine {
             return
         }
         pendingWindow = window
+        pendingLeftoversOnly = leftoversOnly
         pending = candidates
         if configuration.notifyBefore, !isDryRun {
             pendingDeadline = now.addingTimeInterval(TimeInterval(configuration.graceSeconds))
@@ -132,11 +183,10 @@ final class ReaperEngine {
         let now = snapshot.timestamp
         let current = Dictionary(snapshot.processes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let window = pendingWindow
+        let leftoversOnly = pendingLeftoversOnly
         pendingWindow = nil
-        let fresh = Set(policy.candidates(
-            in: snapshot, tracker: tracker, regularAppPIDs: Self.regularAppPIDs(), kept: kept,
-            excluding: [getpid()], window: window, now: now
-        ).map(\.id))
+        pendingLeftoversOnly = false
+        let fresh = Set(currentCandidates(snapshot, window: window, leftoversOnly: leftoversOnly).map(\.id))
         let targets = pending.filter { candidate in
             guard fresh.contains(candidate.id), !kept.contains(candidate.id), let latest = current[candidate.id] else { return false }
             return !ReaperPolicy.wasActive(before: candidate.process, after: latest, memoryFloor: configuration.memoryChangeFloor)
@@ -144,11 +194,14 @@ final class ReaperEngine {
         let spared = pending.count - targets.count
         pending = []
         pendingDeadline = nil
-        nextSweep = now.addingTimeInterval(configuration.window)
+        // Pressure and leftover sweeps do not move the regular schedule.
+        if window == nil, !leftoversOnly { nextSweep = now.addingTimeInterval(configuration.window) }
 
         let trigger = window == nil ? nil : "memory pressure"
         if isDryRun {
             record(targets.map { ($0, ActivityEntry.Outcome.wouldQuit) }, trigger: trigger)
+            // Log a leftover once; it is not re-proposed every 30 s.
+            for target in targets { leftovers[target.id] = nil }
             lastSummary = targets.isEmpty ? "Nothing idle to clean" : "Dry run: would close \(targets.count)"
             return
         }
@@ -167,6 +220,7 @@ final class ReaperEngine {
                 }
             }
             record(outcomes, trigger: trigger)
+            for (candidate, _) in outcomes { leftovers[candidate.id] = nil }
             let closed = outcomes.filter { $0.1.freedMemory }
             let freed = closed.reduce(UInt64(0)) { $0 + $1.0.process.memoryBytes }
             lastSummary = "Closed \(closed.count) · freed \(Formatting.bytes(freed))"
@@ -181,7 +235,7 @@ final class ReaperEngine {
             ActivityEntry(
                 date: Date(), name: candidate.process.name, pid: candidate.process.pid,
                 group: ProcessGrouper.classify(candidate.process).name, rule: candidate.rule,
-                reason: [candidate.ancestry.label, trigger].compactMap { $0 }.joined(separator: " · "),
+                reason: [leftovers[candidate.id]?.reason ?? candidate.ancestry.label, trigger].compactMap { $0 }.joined(separator: " · "),
                 memoryBytes: candidate.process.memoryBytes,
                 commandLine: candidate.process.commandLine, outcome: outcome
             )

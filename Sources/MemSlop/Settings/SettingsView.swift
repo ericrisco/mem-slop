@@ -13,6 +13,9 @@ struct SettingsView: View {
             AutoCleanSettings()
                 .tabItem { Label("Auto-clean", systemImage: "sparkles") }
                 .tag("autoclean")
+            AgentsSettings()
+                .tabItem { Label("Agents", systemImage: "terminal") }
+                .tag("agents")
             RulesSettings(kind: .slop)
                 .tabItem { Label("Slop rules", systemImage: "list.bullet.rectangle") }
                 .tag("rules")

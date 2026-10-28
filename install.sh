@@ -8,6 +8,7 @@
 #   --from-source     build from source with Swift instead of downloading
 #   --dir DIR         install into DIR (default: /Applications, or ~/Applications if not writable)
 #   --no-launch       do not open MemSlop after installing
+#   --no-cli          do not link the `memslop` command
 #   --uninstall       remove MemSlop, its settings and its data
 #
 # Written for the bash 3.2 that ships with macOS.
@@ -22,6 +23,7 @@ readonly MIN_MACOS_MAJOR=14
 version=""
 from_source=0
 launch=1
+link_cli=1
 uninstall=0
 install_dir=""
 
@@ -30,7 +32,19 @@ warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 usage() {
-  sed -n '2,16p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' || true
+  sed -n '2,17p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' || true
+}
+
+# Prints the `memslop` links that point into a MemSlop.app.
+cli_links() {
+  for dir in /usr/local/bin /opt/homebrew/bin "$HOME/.local/bin"; do
+    link="${dir}/memslop"
+    if [ -L "$link" ]; then
+      case "$(readlink "$link")" in
+        */MemSlop.app/Contents/Helpers/memslop) printf '%s\n' "$link" ;;
+      esac
+    fi
+  done
 }
 
 while [ $# -gt 0 ]; do
@@ -39,6 +53,7 @@ while [ $# -gt 0 ]; do
     --from-source) from_source=1; shift ;;
     --dir) install_dir="${2:?--dir needs a path}"; shift 2 ;;
     --no-launch) launch=0; shift ;;
+    --no-cli) link_cli=0; shift ;;
     --uninstall) uninstall=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
@@ -69,6 +84,10 @@ if [ "$uninstall" -eq 1 ]; then
       say "Removing ${dir}/${APP_NAME}"
       rm -rf "${dir:?}/${APP_NAME}"
     fi
+  done
+  for link in $(cli_links); do
+    say "Removing ${link}"
+    rm -f "$link"
   done
   rm -rf "${HOME:?}/Library/Application Support/MemSlop"
   defaults delete "$BUNDLE_ID" >/dev/null 2>&1 || true
@@ -124,10 +143,32 @@ ditto "$built" "$target"
 # Downloaded apps carry a quarantine flag; MemSlop is ad-hoc signed, not notarized.
 xattr -dr com.apple.quarantine "$target" 2>/dev/null || true
 
+if [ "$link_cli" -eq 1 ] && [ -x "${target}/Contents/Helpers/memslop" ]; then
+  bin_dir=""
+  for dir in /usr/local/bin /opt/homebrew/bin; do
+    if [ -d "$dir" ] && [ -w "$dir" ]; then bin_dir="$dir"; break; fi
+  done
+  if [ -z "$bin_dir" ]; then
+    bin_dir="$HOME/.local/bin"
+    mkdir -p "$bin_dir"
+  fi
+  if [ -e "${bin_dir}/memslop" ] && [ ! -L "${bin_dir}/memslop" ]; then
+    warn "${bin_dir}/memslop exists and is not ours; skipping the command line tool"
+  else
+    ln -sf "${target}/Contents/Helpers/memslop" "${bin_dir}/memslop"
+    say "Linked the memslop command at ${bin_dir}/memslop"
+    case ":${PATH}:" in
+      *":${bin_dir}:"*) ;;
+      *) warn "${bin_dir} is not on your PATH. Add: export PATH=\"${bin_dir}:\$PATH\"" ;;
+    esac
+  fi
+fi
+
 installed_version="$(defaults read "${target}/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo "?")"
 say "MemSlop ${installed_version} installed."
 
 if [ "$launch" -eq 1 ]; then
   open "$target"
   say "Look for it in your menu bar. Auto-clean starts after a full interval (10 min by default)."
+  say "Clean up after Claude Code and Codex sessions: memslop hooks install"
 fi
