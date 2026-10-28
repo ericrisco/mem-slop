@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowManager.shared.model = model
         statusController = StatusItemController(model: model)
         model.start()
+        for argument in CommandLine.arguments where argument.hasPrefix("--search=") {
+            model.searchText = String(argument.dropFirst("--search=".count))
+        }
         for argument in CommandLine.arguments where argument.hasPrefix("--open=") {
             if let kind = WindowManager.Kind(rawValue: String(argument.dropFirst("--open=".count))) {
                 WindowManager.shared.show(kind)

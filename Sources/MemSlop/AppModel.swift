@@ -16,6 +16,9 @@ final class AppModel {
     var sortKey: SortKey = Preferences.sortKey {
         didSet { Preferences.sortKey = sortKey; regroup() }
     }
+    var groupingMode: GroupingMode = Preferences.groupingMode {
+        didSet { Preferences.groupingMode = groupingMode; regroup() }
+    }
     var searchText = "" {
         didSet { regroup() }
     }
@@ -85,7 +88,9 @@ final class AppModel {
 
     private func tick(forceProcesses: Bool = false) async {
         let includeProcesses = forceProcesses || isListVisible || isDashboardVisible || Date().timeIntervalSince(lastProcessSample) >= 10
-        let snapshot = await sampler.sample(includeProcesses: includeProcesses)
+        // Ports and projects are only read while the list is on screen.
+        let includeContext = isListVisible || isDashboardVisible
+        let snapshot = await sampler.sample(includeProcesses: includeProcesses, includeContext: includeContext)
         if includeProcesses { lastProcessSample = snapshot.timestamp }
         apply(snapshot, processesChanged: includeProcesses)
         reaper.observe(snapshot, processesSampled: includeProcesses)
@@ -128,12 +133,15 @@ final class AppModel {
     private func regroup() {
         let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
         let queryBytes = Array(query.utf8)
+        let portQuery = query.hasPrefix(":") ? UInt16(query.dropFirst()) : UInt16(query)
         let visible = query.isEmpty ? snapshot.processes : snapshot.processes.filter { process in
             process.matchKeys.name.contains(query)
                 || String(process.pid).hasPrefix(query)
                 || process.matchKeys.commandLine.contains(queryBytes)
+                || portQuery.map(process.context.ports.contains) == true
+                || process.context.project?.name.lowercased().contains(query) == true
         }
-        groups = ProcessGrouper().group(visible, sortedBy: sortKey)
+        groups = ProcessGrouper().group(visible, sortedBy: sortKey, mode: groupingMode)
         // A process's command line never changes, so its slop match is computed once per rule set.
         let configuration = reaper.configuration
         if configuration.rules != matchCacheRules || configuration.protected != matchCacheProtected {
@@ -188,10 +196,13 @@ final class AppModel {
         for target in targets { errors[target.id] = nil }
         Task {
             let outcomes = await controller.quit(targets)
+            var closed: [ProcessSample] = []
             for (identity, outcome) in outcomes {
                 quitting.remove(identity)
                 if let message = outcome.errorMessage { errors[identity] = message }
+                if outcome.errorMessage == nil, let target = targets.first(where: { $0.id == identity }) { closed.append(target) }
             }
+            reaper.recordManual(closed)
             await tick(forceProcesses: true)
         }
     }

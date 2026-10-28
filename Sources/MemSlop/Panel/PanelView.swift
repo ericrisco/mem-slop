@@ -39,6 +39,7 @@ private struct PanelHeader: View {
         @Bindable var model = model
         HStack(spacing: 8) {
             Wordmark()
+            FreedPill(bytes: model.reaper.freedToday)
             Spacer()
             Button {
                 onOpenWindow()
@@ -164,7 +165,7 @@ private struct ProcessToolbar: View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search name, PID or command", text: $model.searchText)
+                TextField("Search name, port, project…", text: $model.searchText)
                     .textFieldStyle(.plain)
                 if !model.searchText.isEmpty {
                     Button { model.searchText = "" } label: {
@@ -185,8 +186,9 @@ private struct ProcessToolbar: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 120)
+            .frame(width: 112)
             .help("Sort by CPU or memory")
+            GroupingPicker(mode: $model.groupingMode)
         }
     }
 }
@@ -198,7 +200,7 @@ private struct PanelFooter: View {
         HStack(spacing: 8) {
             let selected = model.selectedProcesses
             if selected.isEmpty {
-                Text("\(model.snapshot.processes.count) processes · \(model.groups.count) groups")
+                Text("\(model.snapshot.processes.count) processes · \(model.groups.count) group\(model.groups.count == 1 ? "" : "s")")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()

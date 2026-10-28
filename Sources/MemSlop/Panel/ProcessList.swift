@@ -22,7 +22,7 @@ struct ProcessList: View {
                         GroupRow(group: group, coreCount: model.system.coreCount, memoryTotal: model.system.memoryTotal)
                         if model.expandedGroups.contains(group.id) || !model.searchText.isEmpty {
                             ForEach(group.processes) { process in
-                                ProcessRow(process: process)
+                                ProcessRow(process: process, isInsideProjectGroup: group.isProject)
                             }
                         }
                     }
@@ -56,6 +56,7 @@ struct GroupRow: View {
                     Text(group.name)
                         .font(.system(size: 12.5, weight: .semibold))
                         .lineLimit(1)
+                        .layoutPriority(1)
                     let slop = group.processes.filter { model.slopMatches[$0.id] != nil }.count
                     if slop > 0 {
                         Text("\(slop) slop")
@@ -65,6 +66,7 @@ struct GroupRow: View {
                             .padding(.vertical, 1)
                             .foregroundStyle(Theme.slop)
                             .background(Theme.slop.opacity(0.16), in: Capsule())
+                            .fixedSize()
                     }
                     if group.processes.count > 1 {
                         Text("\(group.processes.count)")
@@ -72,6 +74,13 @@ struct GroupRow: View {
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
                             .background(.quaternary, in: Capsule())
+                            .fixedSize()
+                    }
+                    // Ports only where they fit: the name always wins the space.
+                    ViewThatFits(in: .horizontal) {
+                        PortTags(ports: group.ports, limit: 2)
+                        PortTags(ports: group.ports, limit: 1)
+                        Color.clear.frame(width: 0, height: 0)
                     }
                 }
                 MiniMeter(
@@ -118,7 +127,14 @@ struct GroupRow: View {
 struct ProcessRow: View {
     @Environment(AppModel.self) private var model
     let process: ProcessSample
+    var isInsideProjectGroup = false
     @State private var hovering = false
+
+    private var tooltip: String {
+        var lines = [process.commandLine]
+        if let directory = process.context.workingDirectory { lines.append("in \(directory)") }
+        return lines.joined(separator: "\n")
+    }
 
     var body: some View {
         let selected = model.selection.contains(process.id)
@@ -137,6 +153,7 @@ struct ProcessRow: View {
                     Text("\(process.pid)")
                         .font(.system(size: 10).monospacedDigit())
                         .foregroundStyle(.tertiary)
+                    PortTags(ports: process.context.ports)
                     if let rule = model.slopMatches[process.id] {
                         SlopBadge(rule: rule, pending: model.reaper.isPending(process.id))
                     }
@@ -146,14 +163,23 @@ struct ProcessRow: View {
                         .font(.system(size: 10))
                         .foregroundStyle(Theme.danger)
                 } else {
-                    Text(process.commandLine)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    HStack(spacing: 4) {
+                        if let project = process.context.project, !isInsideProjectGroup {
+                            Label(project.name, systemImage: "folder")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .labelStyle(CompactLabelStyle())
+                                .fixedSize()
+                        }
+                        Text(process.commandLine)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
             }
-            .help(process.commandLine)
+            .help(tooltip)
             Spacer(minLength: 6)
             if quitting {
                 ProgressView().controlSize(.mini)
@@ -183,5 +209,21 @@ struct ProcessRow: View {
         .contentShape(Rectangle())
         .onTapGesture { if model.isQuittable(process) { model.toggleSelection(process) } }
         .onHover { hovering = $0 }
+    }
+}
+
+private struct CompactLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 2) {
+            configuration.icon.imageScale(.small)
+            configuration.title
+        }
+    }
+}
+
+extension ProcessGroup {
+    var isProject: Bool {
+        if case .project = kind { return true }
+        return false
     }
 }

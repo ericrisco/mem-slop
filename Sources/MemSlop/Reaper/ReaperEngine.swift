@@ -23,11 +23,16 @@ final class ReaperEngine {
     private(set) var lastSweep: Date?
     private(set) var lastSummary: String?
     private(set) var isClosing = false
+    /// Memory freed since install, across auto-clean and manual quits.
+    private(set) var savings: SavingsCounter
 
     @ObservationIgnored private var tracker = IdleTracker()
     @ObservationIgnored private let terminator = ProcessTerminator()
     @ObservationIgnored private let notifier: ReaperNotifier
     @ObservationIgnored private var sweepRequested = false
+    @ObservationIgnored private var pressureTrigger = PressureTrigger()
+    /// Idle window used by the pending sweep: shorter when it was triggered by memory pressure.
+    @ObservationIgnored private var pendingWindow: TimeInterval?
     /// `--reaper-dry-run`: never closes anything this session, whatever the settings say.
     @ObservationIgnored private let forceDryRun: Bool
 
@@ -42,6 +47,7 @@ final class ReaperEngine {
         self.configuration = configuration
         nextSweep = Date().addingTimeInterval(configuration.window)
         log = ActivityLog(fileURL: DemoData.isEnabled ? nil : StoragePaths.activityLog)
+        savings = DemoData.isEnabled ? DemoData.savings : SavingsCounter.load(from: StoragePaths.savings)
         notifier = ReaperNotifier()
         notifier.onKeepAll = { [weak self] in self?.keepAll() }
         notifier.onCloseNow = { [weak self] in self?.closeNow() }
@@ -82,10 +88,13 @@ final class ReaperEngine {
         if pending.isEmpty, pendingDeadline != nil { pendingDeadline = nil }
 
         guard configuration.isEnabled, !isClosing, !DemoData.isEnabled else { return }
+        let underPressure = pressureTrigger.observe(snapshot.system.pressure, at: now) && configuration.cleanOnPressure
         if let deadline = pendingDeadline {
             if now >= deadline { close(using: snapshot) }
         } else if sweepRequested || now >= nextSweep {
             sweep(snapshot)
+        } else if underPressure {
+            sweep(snapshot, window: configuration.pressureWindow)
         }
     }
 
@@ -93,19 +102,22 @@ final class ReaperEngine {
         sweepRequested = true
     }
 
-    private func sweep(_ snapshot: MonitorSnapshot) {
+    /// - Parameter window: a shorter idle window for pressure sweeps; `nil` uses the interval.
+    private func sweep(_ snapshot: MonitorSnapshot, window: TimeInterval? = nil) {
         sweepRequested = false
         let now = snapshot.timestamp
         lastSweep = now
         let candidates = policy.candidates(
             in: snapshot, tracker: tracker, regularAppPIDs: Self.regularAppPIDs(), kept: kept,
-            excluding: [getpid()], now: now
+            excluding: [getpid()], window: window, now: now
         )
         guard !candidates.isEmpty else {
-            lastSummary = "Nothing idle to clean"
-            nextSweep = now.addingTimeInterval(configuration.window)
+            lastSummary = window == nil ? "Nothing idle to clean" : "Memory critical · nothing idle to clean"
+            // A pressure sweep does not move the regular schedule.
+            if window == nil { nextSweep = now.addingTimeInterval(configuration.window) }
             return
         }
+        pendingWindow = window
         pending = candidates
         if configuration.notifyBefore, !isDryRun {
             pendingDeadline = now.addingTimeInterval(TimeInterval(configuration.graceSeconds))
@@ -119,9 +131,11 @@ final class ReaperEngine {
     private func close(using snapshot: MonitorSnapshot) {
         let now = snapshot.timestamp
         let current = Dictionary(snapshot.processes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let window = pendingWindow
+        pendingWindow = nil
         let fresh = Set(policy.candidates(
             in: snapshot, tracker: tracker, regularAppPIDs: Self.regularAppPIDs(), kept: kept,
-            excluding: [getpid()], now: now
+            excluding: [getpid()], window: window, now: now
         ).map(\.id))
         let targets = pending.filter { candidate in
             guard fresh.contains(candidate.id), !kept.contains(candidate.id), let latest = current[candidate.id] else { return false }
@@ -132,8 +146,9 @@ final class ReaperEngine {
         pendingDeadline = nil
         nextSweep = now.addingTimeInterval(configuration.window)
 
+        let trigger = window == nil ? nil : "memory pressure"
         if isDryRun {
-            record(targets.map { ($0, ActivityEntry.Outcome.wouldQuit) })
+            record(targets.map { ($0, ActivityEntry.Outcome.wouldQuit) }, trigger: trigger)
             lastSummary = targets.isEmpty ? "Nothing idle to clean" : "Dry run: would close \(targets.count)"
             return
         }
@@ -151,7 +166,7 @@ final class ReaperEngine {
                 default: (candidate, .failed)
                 }
             }
-            record(outcomes)
+            record(outcomes, trigger: trigger)
             let closed = outcomes.filter { $0.1.freedMemory }
             let freed = closed.reduce(UInt64(0)) { $0 + $1.0.process.memoryBytes }
             lastSummary = "Closed \(closed.count) · freed \(Formatting.bytes(freed))"
@@ -160,17 +175,36 @@ final class ReaperEngine {
         }
     }
 
-    private func record(_ outcomes: [(ReapCandidate, ActivityEntry.Outcome)]) {
+    private func record(_ outcomes: [(ReapCandidate, ActivityEntry.Outcome)], trigger: String? = nil) {
         guard !outcomes.isEmpty else { return }
         let entries = outcomes.map { candidate, outcome in
             ActivityEntry(
                 date: Date(), name: candidate.process.name, pid: candidate.process.pid,
                 group: ProcessGrouper.classify(candidate.process).name, rule: candidate.rule,
-                reason: candidate.ancestry.label, memoryBytes: candidate.process.memoryBytes,
+                reason: [candidate.ancestry.label, trigger].compactMap { $0 }.joined(separator: " · "),
+                memoryBytes: candidate.process.memoryBytes,
                 commandLine: candidate.process.commandLine, outcome: outcome
             )
         }
+        append(entries)
+    }
+
+    /// Logs processes the user quit by hand, so they count towards memory freed.
+    func recordManual(_ processes: [ProcessSample]) {
+        guard !processes.isEmpty, !DemoData.isEnabled else { return }
+        append(processes.map { process in
+            ActivityEntry(
+                date: Date(), name: process.name, pid: process.pid, group: ProcessGrouper.classify(process).name,
+                rule: "Manual", reason: "quit by you", memoryBytes: process.memoryBytes,
+                commandLine: process.commandLine, outcome: .quit
+            )
+        })
+    }
+
+    private func append(_ entries: [ActivityEntry]) {
         log.append(entries)
+        savings.add(entries)
+        if !DemoData.isEnabled { savings.save(to: StoragePaths.savings) }
     }
 
     // MARK: - User actions
@@ -197,6 +231,7 @@ final class ReaperEngine {
     private func cancelPending() {
         pending = []
         pendingDeadline = nil
+        pendingWindow = nil
         notifier.withdraw()
     }
 

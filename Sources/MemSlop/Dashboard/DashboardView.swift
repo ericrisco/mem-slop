@@ -204,6 +204,11 @@ private struct AutoCleanSummary: View {
             }
             Text("\(closedToday) process\(closedToday == 1 ? "" : "es") closed · \(model.slopMatches.count) slop running now")
                 .font(.callout).foregroundStyle(.secondary)
+            if reaper.savings.totalBytes > 0 {
+                Text("\(Formatting.bytes(reaper.savings.totalBytes)) freed since \(reaper.savings.since.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "install")")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(Theme.memory)
+            }
             Divider()
             if reaper.configuration.isEnabled {
                 HStack(spacing: 4) {
@@ -233,7 +238,7 @@ private struct ProcessesPage: View {
         @Bindable var model = model
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                TextField("Search name, PID or command", text: $model.searchText)
+                TextField("Search name, PID, port, project or command", text: $model.searchText)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 360)
                 Picker("Sort by", selection: $model.sortKey) {
@@ -242,6 +247,7 @@ private struct ProcessesPage: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 160)
+                GroupingPicker(mode: $model.groupingMode)
                 Spacer()
                 Button(model.expandedGroups.isEmpty ? "Expand all" : "Collapse all") {
                     model.expandedGroups = model.expandedGroups.isEmpty ? Set(model.groups.map(\.id)) : []

@@ -74,6 +74,27 @@ enum DemoData {
         }
     }
 
+    /// Ports and projects inferred from the fake command lines, so the list looks like a real dev machine.
+    static func context(for process: ProcessSample) -> ProcessContext {
+        let command = process.commandLine
+        let projects = ["shop", "admin", "api", "docs", "ml"]
+        let project = projects.first { command.contains("/Users/dev/\($0)/") || process.executablePath.contains("/Users/dev/\($0)/") }.map { Project(path: "/Users/dev/\($0)") }
+        let ports: [UInt16] = switch true {
+        case command.contains("next dev"): [3000]
+        case command.contains("start-server.js"): [3001]
+        case command.contains("vite.js"): [5173]
+        case command.contains("tsx watch"): [4000]
+        case command.contains("astro dev"): [4321]
+        case command.contains("uvicorn"): [8000]
+        case command.contains("streamlit"): [8501]
+        case command.contains("postgres"): [5432]
+        case command.contains("redis-server"): [6379]
+        case command.contains("remote-debugging-port"): [9222]
+        default: []
+        }
+        return ProcessContext(ports: ports, workingDirectory: project?.path, project: project ?? (command.contains("streamlit") ? Project(path: "/Users/dev/dashboards") : nil))
+    }
+
     static func system(at date: Date) -> SystemSnapshot {
         let phase = date.timeIntervalSince1970
         let total: UInt64 = 32 * 1_073_741_824
@@ -116,6 +137,13 @@ enum DemoData {
         return history
     }
 
+    static var savings: SavingsCounter {
+        var counter = SavingsCounter()
+        counter.add([ActivityEntry(date: Date().addingTimeInterval(-19 * 86_400), name: "node", pid: 1, group: "Node.js", rule: "", reason: "",
+                                   memoryBytes: 61 * 1_073_741_824, commandLine: "", outcome: .quit)])
+        return counter
+    }
+
     static func activity(now: Date) -> [ActivityEntry] {
         let rows: [(minutes: Double, name: String, group: String, rule: String, reason: String, mb: UInt64, command: String, outcome: ActivityEntry.Outcome)] = [
             (12, "node", "Node.js", "Next.js dev server", "started by Claude Code", 1_520, "node node_modules/.bin/next dev", .quit),
@@ -136,9 +164,10 @@ enum DemoData {
 
 /// Serves demo snapshots in place of the real sampler.
 actor DemoSource: SnapshotSource {
-    func sample(includeProcesses: Bool) -> MonitorSnapshot {
+    func sample(includeProcesses: Bool, includeContext: Bool) -> MonitorSnapshot {
         let now = Date()
-        let processes = DemoData.processes(at: now)
+        var processes = DemoData.processes(at: now)
+        for index in processes.indices { processes[index].context = DemoData.context(for: processes[index]) }
         var tree: [Int32: ProcessNode] = [1: ProcessNode(pid: 1, ppid: 0, name: "launchd", executablePath: "/sbin/launchd")]
         for process in processes {
             tree[process.pid] = ProcessNode(pid: process.pid, ppid: process.ppid, name: process.name, executablePath: process.executablePath)

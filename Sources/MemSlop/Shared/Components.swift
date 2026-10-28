@@ -106,6 +106,8 @@ struct GroupIcon: View {
             symbolTile(family.symbolName, tint: family == .agents ? Theme.slop : .accentColor)
         case .executable:
             symbolTile("gearshape", tint: .secondary)
+        case .project:
+            symbolTile("folder.fill", tint: Theme.cpu)
         }
     }
 
@@ -179,5 +181,66 @@ struct MiniMeter: View {
             Capsule().fill(color).frame(width: max(2, width * min(1, value)))
         }
         .frame(width: width, height: 3)
+    }
+}
+
+/// Listening ports as small monospaced tags: `:3000 :8000 +2`.
+struct PortTags: View {
+    let ports: [UInt16]
+    var limit = 3
+
+    var body: some View {
+        if !ports.isEmpty {
+            HStack(spacing: 3) {
+                ForEach(ports.prefix(limit), id: \.self) { port in
+                    Text(":\(String(port))")
+                        .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .foregroundStyle(Theme.cpu)
+                        .background(Theme.cpu.opacity(0.13), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                }
+                if ports.count > limit {
+                    Text("+\(ports.count - limit)")
+                        .font(.system(size: 9.5, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .fixedSize()
+            .help("Listening on " + ports.map { ":\($0)" }.joined(separator: " "))
+        }
+    }
+}
+
+/// Segmented control that switches the list between grouping by kind and by project.
+struct GroupingPicker: View {
+    @Binding var mode: GroupingMode
+
+    var body: some View {
+        Picker("Group by", selection: $mode) {
+            Image(systemName: "square.grid.2x2").help("Group by kind").tag(GroupingMode.kind)
+            Image(systemName: "folder").help("Group by project").tag(GroupingMode.project)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+        .help("Group by kind or by project")
+    }
+}
+
+/// "1.2 GB freed today" pill.
+struct FreedPill: View {
+    let bytes: UInt64
+
+    var body: some View {
+        if bytes > 0 {
+            Label(Formatting.bytes(bytes), systemImage: "arrow.down.circle.fill")
+                .font(.system(size: 10.5, weight: .bold).monospacedDigit())
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .foregroundStyle(Theme.memory)
+                .background(Theme.memory.opacity(0.14), in: Capsule())
+                .help("Memory freed today by MemSlop")
+        }
     }
 }

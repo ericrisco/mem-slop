@@ -15,6 +15,11 @@ enum Preferences {
         set { defaults.set(newValue.rawValue, forKey: "sortKey") }
     }
 
+    static var groupingMode: GroupingMode {
+        get { defaults.string(forKey: "groupingMode").flatMap(GroupingMode.init) ?? .kind }
+        set { defaults.set(newValue.rawValue, forKey: "groupingMode") }
+    }
+
     /// Seconds between samples.
     static var refreshInterval: Double {
         get { defaults.object(forKey: "refreshInterval") as? Double ?? 2 }

@@ -100,6 +100,13 @@ private struct AutoCleanSettings: View {
                 .pickerStyle(.segmented)
                 Text("A process must have been idle for this whole time to be closed.")
                     .font(.caption).foregroundStyle(.secondary)
+                Toggle(isOn: $reaper.configuration.cleanOnPressure) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Clean early when memory is critical")
+                        Text("If memory pressure stays red for 30 s, check right away. Processes idle for 5 min qualify. Same warning and Keep button.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
             Section("Safety") {
                 Toggle("Warn \(reaper.configuration.graceSeconds) s before closing, with a Keep button", isOn: $reaper.configuration.notifyBefore)
