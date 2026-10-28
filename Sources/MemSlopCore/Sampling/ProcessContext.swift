@@ -45,7 +45,8 @@ public final class ProjectResolver: @unchecked Sendable {
     }
 
     /// System and app-data locations: a process running there is not working on a project.
-    static let systemPrefixes = ["/System/", "/Library/", "/usr/", "/bin/", "/sbin/", "/private/var/", "/var/", "/Applications/", "/dev/"]
+    static let systemPrefixes = ["/System/", "/Library/", "/usr/", "/bin/", "/sbin/", "/private/var/", "/var/", "/Applications/", "/dev/",
+                                 "/opt/homebrew/var/", "/opt/homebrew/Cellar/", "/opt/homebrew/opt/"]
 
     public func project(for directory: String?) -> Project? {
         guard let directory, !directory.isEmpty else { return nil }

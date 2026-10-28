@@ -90,14 +90,18 @@ public struct ActivityLog: Sendable {
 }
 
 public enum StoragePaths {
-    /// `~/Library/Application Support/MemSlop`
+    /// `~/Library/Application Support/MemSlop`, or `$MEMSLOP_DATA_DIR` (for tests and development).
     public static var directory: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        if let override = ProcessInfo.processInfo.environment["MEMSLOP_DATA_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("MemSlop", isDirectory: true)
     }
 
     public static var activityLog: URL { directory.appendingPathComponent("activity.json") }
     public static var history: URL { directory.appendingPathComponent("history.json") }
+    public static var inbox: URL { directory.appendingPathComponent("inbox", isDirectory: true) }
     public static var savings: URL { directory.appendingPathComponent("savings.json") }
 }
 

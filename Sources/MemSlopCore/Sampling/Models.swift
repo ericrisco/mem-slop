@@ -37,6 +37,8 @@ public struct ProcessSample: Identifiable, Hashable, Sendable {
     public let matchKeys: MatchKeys
     /// Ports and project; filled in only while someone is looking at the list.
     public var context: ProcessContext = .empty
+    /// The Claude Code session that launched it, from `CLAUDE_CODE_SESSION_ID` (inherited by children).
+    public var agentSessionID: String?
 
     public struct MatchKeys: Hashable, Sendable {
         public let name: String

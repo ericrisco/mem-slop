@@ -19,6 +19,8 @@ public struct ReaperConfiguration: Sendable, Codable, Equatable {
     public var protected = ProcessRule.defaultProtected
     /// Sweep early, with a shorter idle window, when memory pressure stays critical.
     public var cleanOnPressure = true
+    /// Treat what an ended agent session left running as slop (no rule needed).
+    public var cleanSessionLeftovers = true
     /// Testing aid: replaces the interval-based window (seconds). Never set from the UI.
     public var windowOverride: TimeInterval?
 
@@ -31,12 +33,25 @@ public struct ReaperConfiguration: Sendable, Codable, Equatable {
 
     public init() {}
 
+    /// Where the app keeps its settings, readable from the `memslop` command too.
+    public static let defaultsDomain = "com.ericrisco.memslop"
+    public static let defaultsKey = "reaperConfiguration"
+
+    /// The settings saved by the app, or defaults.
+    public static func saved(in defaults: UserDefaults? = UserDefaults(suiteName: defaultsDomain)) -> ReaperConfiguration {
+        guard let data = defaults?.data(forKey: defaultsKey),
+              let configuration = try? JSONDecoder().decode(ReaperConfiguration.self, from: data) else { return ReaperConfiguration() }
+        return configuration
+    }
+
     public var window: TimeInterval { windowOverride ?? TimeInterval(intervalMinutes * 60) }
     public var pressureWindow: TimeInterval { min(window, Self.pressureWindow) }
+    /// Session leftovers only need to be idle this long: the session that wanted them is gone.
+    public var leftoverWindow: TimeInterval { min(window, Self.pressureWindow) }
 
     private enum CodingKeys: String, CodingKey {
         case isEnabled, intervalMinutes, cpuThreshold, memoryChangeFraction, memoryChangeFloor, notifyBefore
-        case graceSeconds, dryRun, rules, protected, cleanOnPressure
+        case graceSeconds, dryRun, rules, protected, cleanOnPressure, cleanSessionLeftovers
     }
 
     /// Settings saved by older versions lack newer keys; every key falls back to its default.
@@ -54,6 +69,7 @@ public struct ReaperConfiguration: Sendable, Codable, Equatable {
         rules = try container.decodeIfPresent([ProcessRule].self, forKey: .rules) ?? defaults.rules
         protected = try container.decodeIfPresent([ProcessRule].self, forKey: .protected) ?? defaults.protected
         cleanOnPressure = try container.decodeIfPresent(Bool.self, forKey: .cleanOnPressure) ?? defaults.cleanOnPressure
+        cleanSessionLeftovers = try container.decodeIfPresent(Bool.self, forKey: .cleanSessionLeftovers) ?? defaults.cleanSessionLeftovers
     }
 }
 
@@ -110,38 +126,84 @@ public struct ReaperPolicy: Sendable {
         window: TimeInterval? = nil,
         now: Date
     ) -> [ReapCandidate] {
-        let window = window ?? configuration.window
+        let judge = IdleJudge(snapshot: snapshot, tracker: tracker, configuration: configuration, window: window ?? configuration.window, now: now)
         let arguments = Dictionary(snapshot.processes.map { ($0.pid, $0.arguments) }, uniquingKeysWith: { first, _ in first })
-        let byPID = Dictionary(snapshot.processes.map { ($0.pid, $0) }, uniquingKeysWith: { first, _ in first })
-        var children: [Int32: [Int32]] = [:]
-        for node in snapshot.tree.values { children[node.ppid, default: []].append(node.pid) }
-
-        func isIdle(_ process: ProcessSample) -> IdleTracker.Activity? {
-            guard let activity = tracker.activity(of: process, over: window, now: now) else { return nil }
-            let allowedChange = max(UInt64(Double(activity.peakMemory) * configuration.memoryChangeFraction), configuration.memoryChangeFloor)
-            guard activity.averageCPU < configuration.cpuThreshold, activity.memoryChange <= allowedChange else { return nil }
-            return activity
-        }
-
-        func descendantsAreIdle(_ pid: Int32, depth: Int = 0) -> Bool {
-            guard depth < 32 else { return false }
-            for child in children[pid] ?? [] {
-                guard let process = byPID[child] else { continue }
-                if isIdle(process) == nil { return false }
-                if !descendantsAreIdle(child, depth: depth + 1) { return false }
-            }
-            return true
-        }
 
         return snapshot.processes.compactMap { process in
             guard !excludedPIDs.contains(process.pid), !kept.contains(process.id),
                   let rule = matchingRule(for: process), !isProtected(process) else { return nil }
             if regularAppPIDs.contains(process.pid), !rule.matchesApps { return nil }
             let ancestry = AncestryClassifier.classify(process, tree: snapshot.tree, arguments: arguments)
-            guard ancestry.isEligible, let activity = isIdle(process), descendantsAreIdle(process.pid) else { return nil }
+            guard ancestry.isEligible, let activity = judge.idleActivity(process), judge.descendantsAreIdle(process.pid) else { return nil }
             return ReapCandidate(process: process, rule: rule.name, ancestry: ancestry, averageCPU: activity.averageCPU, idleFor: activity.observedFor)
         }
         .sorted { $0.process.memoryBytes > $1.process.memoryBytes }
+    }
+
+    /// Processes left by ended agent sessions. They need no slop rule — the ended session is the
+    /// evidence — but every other safeguard applies: protection, regular apps, idleness of the
+    /// process and its children. Agents themselves are never leftovers.
+    public func leftoverCandidates(
+        in snapshot: MonitorSnapshot,
+        leftovers: [ProcessIdentity: SessionLeftover],
+        tracker: IdleTracker,
+        regularAppPIDs: Set<Int32>,
+        kept: Set<ProcessIdentity>,
+        excluding excludedPIDs: Set<Int32> = [],
+        window: TimeInterval,
+        now: Date
+    ) -> [ReapCandidate] {
+        guard !leftovers.isEmpty else { return [] }
+        let judge = IdleJudge(snapshot: snapshot, tracker: tracker, configuration: configuration, window: window, now: now)
+        return snapshot.processes.compactMap { process in
+            guard let leftover = leftovers[process.id], !excludedPIDs.contains(process.pid), !kept.contains(process.id),
+                  !isProtected(process), !regularAppPIDs.contains(process.pid),
+                  ProcessFamily.detect(name: process.name, arguments: process.arguments) != .agents,
+                  let activity = judge.idleActivity(process), judge.descendantsAreIdle(process.pid) else { return nil }
+            return ReapCandidate(
+                process: process, rule: matchingRule(for: process)?.name ?? "Session leftover",
+                ancestry: .agentSpawned(agent: leftover.agent), averageCPU: activity.averageCPU, idleFor: activity.observedFor
+            )
+        }
+        .sorted { $0.process.memoryBytes > $1.process.memoryBytes }
+    }
+}
+
+/// Answers "was this process (and its children) idle for the whole window?".
+private struct IdleJudge {
+    let byPID: [Int32: ProcessSample]
+    let children: [Int32: [Int32]]
+    let tracker: IdleTracker
+    let configuration: ReaperConfiguration
+    let window: TimeInterval
+    let now: Date
+
+    init(snapshot: MonitorSnapshot, tracker: IdleTracker, configuration: ReaperConfiguration, window: TimeInterval, now: Date) {
+        byPID = Dictionary(snapshot.processes.map { ($0.pid, $0) }, uniquingKeysWith: { first, _ in first })
+        var children: [Int32: [Int32]] = [:]
+        for node in snapshot.tree.values { children[node.ppid, default: []].append(node.pid) }
+        self.children = children
+        self.tracker = tracker
+        self.configuration = configuration
+        self.window = window
+        self.now = now
+    }
+
+    func idleActivity(_ process: ProcessSample) -> IdleTracker.Activity? {
+        guard let activity = tracker.activity(of: process, over: window, now: now) else { return nil }
+        let allowedChange = max(UInt64(Double(activity.peakMemory) * configuration.memoryChangeFraction), configuration.memoryChangeFloor)
+        guard activity.averageCPU < configuration.cpuThreshold, activity.memoryChange <= allowedChange else { return nil }
+        return activity
+    }
+
+    func descendantsAreIdle(_ pid: Int32, depth: Int = 0) -> Bool {
+        guard depth < 32 else { return false }
+        for child in children[pid] ?? [] {
+            guard let process = byPID[child] else { continue }
+            if idleActivity(process) == nil { return false }
+            if !descendantsAreIdle(child, depth: depth + 1) { return false }
+        }
+        return true
     }
 }
 

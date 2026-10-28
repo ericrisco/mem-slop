@@ -53,7 +53,8 @@ public enum AncestryClassifier {
         return .orphaned
     }
 
-    static func agentName(_ node: ProcessNode, arguments: [String]) -> String? {
+    /// Display name of the agent CLI this process is, if any.
+    public static func agentName(_ node: ProcessNode, arguments: [String]) -> String? {
         let name = node.name.lowercased()
         if agentExecutables.contains(name) { return displayAgent(name) }
         for argument in arguments.prefix(3) {

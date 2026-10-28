@@ -9,7 +9,7 @@ public final class ProcessSampler {
     }
 
     private var previous: [ProcessIdentity: Previous] = [:]
-    private var argumentsCache: [ProcessIdentity: [String]] = [:]
+    private var argumentsCache: [ProcessIdentity: (arguments: [String], session: String?)] = [:]
     private var pathCache: [ProcessIdentity: String] = [:]
     private var contextCache: [ProcessIdentity: (context: ProcessContext, refreshed: UInt64)] = [:]
     private let projects = ProjectResolver()
@@ -48,18 +48,20 @@ public final class ProcessSampler {
             }
             previous[identity] = Previous(cpuTimeNanos: cpuTime, wallNanos: now)
 
+            let launch = cachedLaunch(identity)
             var sample = ProcessSample(
                 id: identity,
                 ppid: entry.ppid,
                 uid: entry.uid,
                 name: name,
                 executablePath: path,
-                arguments: cachedArguments(identity),
+                arguments: launch.arguments,
                 cpuPercent: cpuPercent,
                 memoryBytes: usage.ri_phys_footprint,
                 cpuTimeNanos: cpuTime,
                 startDate: Date(timeIntervalSince1970: TimeInterval(identity.startTime) / 1_000_000)
             )
+            sample.agentSessionID = launch.session
             if includeContext {
                 sample.context = context(identity, now: now)
             } else if let cached = contextCache[identity] {
@@ -94,11 +96,21 @@ public final class ProcessSampler {
         return path
     }
 
-    private func cachedArguments(_ identity: ProcessIdentity) -> [String] {
-        if let arguments = argumentsCache[identity] { return arguments }
-        let arguments = Self.arguments(identity.pid)
-        argumentsCache[identity] = arguments
-        return arguments
+    /// Command line and agent session tag; both are fixed at exec time, so read once per process.
+    private func cachedLaunch(_ identity: ProcessIdentity) -> (arguments: [String], session: String?) {
+        if let launch = argumentsCache[identity] { return launch }
+        let parsed = Self.procArgs(identity.pid)
+        let launch = (parsed.arguments, Self.value(of: Self.sessionVariable, in: parsed.environment))
+        argumentsCache[identity] = launch
+        return launch
+    }
+
+    /// Claude Code sets this in every Bash tool command, and children inherit it.
+    public static let sessionVariable = "CLAUDE_CODE_SESSION_ID"
+
+    static func value(of variable: String, in environment: [String]) -> String? {
+        let prefix = variable + "="
+        return environment.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     // MARK: - libproc wrappers
@@ -166,30 +178,39 @@ public final class ProcessSampler {
         return sysctlbyname("kern.argmax", &value, &size, nil, 0) == 0 ? Int(value) : 256 * 1024
     }()
 
-    static func arguments(_ pid: pid_t) -> [String] {
+    static func procArgs(_ pid: pid_t) -> (arguments: [String], environment: [String]) {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = argumentsMax
         var buffer = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return [] }
-        return parseProcArgs(Array(buffer.prefix(size)))
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return ([], []) }
+        return parseProcArgsAndEnvironment(Array(buffer.prefix(size)))
     }
 
     /// Parses a `KERN_PROCARGS2` buffer: argc, exec path, padding, then argc NUL-terminated args.
     public static func parseProcArgs(_ buffer: [UInt8]) -> [String] {
-        guard buffer.count > MemoryLayout<Int32>.size else { return [] }
+        parseProcArgsAndEnvironment(buffer).arguments
+    }
+
+    /// Same as `parseProcArgs`, plus the `KEY=value` environment strings that follow the arguments.
+    public static func parseProcArgsAndEnvironment(_ buffer: [UInt8]) -> (arguments: [String], environment: [String]) {
+        guard buffer.count > MemoryLayout<Int32>.size else { return ([], []) }
         let argc = buffer.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
-        guard argc > 0 else { return [] }
+        guard argc > 0 else { return ([], []) }
         var index = MemoryLayout<Int32>.size
         while index < buffer.count, buffer[index] != 0 { index += 1 }   // exec path
         while index < buffer.count, buffer[index] == 0 { index += 1 }   // padding
-        var arguments: [String] = []
-        while arguments.count < Int(argc), index < buffer.count {
+        func next() -> String {
             let start = index
             while index < buffer.count, buffer[index] != 0 { index += 1 }
-            arguments.append(String(decoding: buffer[start..<index], as: UTF8.self))
-            index += 1
+            defer { index += 1 }
+            return String(decoding: buffer[start..<index], as: UTF8.self)
         }
-        return arguments
+        var arguments: [String] = []
+        while arguments.count < Int(argc), index < buffer.count { arguments.append(next()) }
+        var environment: [String] = []
+        // The environment ends at the first empty string.
+        while index < buffer.count, buffer[index] != 0 { environment.append(next()) }
+        return (arguments, environment)
     }
 
     static func cString(from bytes: UnsafeRawBufferPointer) -> String {
