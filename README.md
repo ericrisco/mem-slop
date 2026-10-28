@@ -77,10 +77,13 @@ server you started in your own terminal.
   `node` becomes "the Next.js of *shop* on :3000".
 - Group by kind or **by project**. Sort by CPU or memory. Search by name, PID, port, project or
   command line.
-- Quit one process, a whole group or a selection. Apps are asked to quit like the Dock does.
+- **Close all slop** in one click (a second click confirms), or quit one process, a whole group
+  or a selection. Apps are asked to quit like the Dock does.
   Other processes get `SIGTERM`, then `SIGKILL` if they ignore it for 5 seconds.
 
 **Auto-clean**
+- **The first day closes nothing.** MemSlop only counts what it would have closed, then shows you
+  the summary and asks before turning auto-clean on.
 - Every 10 minutes (10, 15, 20, 30 or 60), MemSlop closes dev slop that has been idle for that
   whole time.
 - A 60-second warning with **Keep** and **Close now**, in the panel and as a notification.
@@ -112,7 +115,7 @@ PORT   PID     NAME                  PROJECT                  MEMORY  SLOP
 $ memslop quit :3000
 ```
 
-Also `memslop ps [--slop] [--json]` and `memslop ports --json`, handy for agents that need to
+Also `memslop quit --slop`, `memslop ps [--slop] [--json]` and `memslop ports --json`, handy for agents that need to
 know what is already running before they start another server.
 
 **Dashboard**

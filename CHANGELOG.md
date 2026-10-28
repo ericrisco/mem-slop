@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] - 2026-10-28
+
+### Added
+- **First day in learning mode**: on a fresh install, auto-clean closes nothing for 24 hours and only counts what it would have closed. Then a notification and a panel card show the summary ("would have closed 3 processes and freed 2.2 GB") with **Turn on auto-clean** and **Keep dry run**. Settings → Auto-clean shows the countdown and can end it early. Upgrades from earlier versions skip it.
+- **Close all slop** button in the panel: one click (and a confirming second) quits every process the slop rules match, idle or not. Logged as manual and counted as memory freed.
+- `memslop quit --slop [--yes]` does the same from the terminal.
+
 ## [1.3.0] - 2026-10-28
 
 ### Added
@@ -85,6 +92,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Quit a process, a whole group, or a multi-selection. Apps are asked to quit like the Dock does; other processes get SIGTERM, then SIGKILL after 5 s.
 - Core sampling with libproc and Mach (under 1% CPU and ~20 MB while idle).
 
+[1.4.0]: https://github.com/ericrisco/mem-slop/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ericrisco/mem-slop/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ericrisco/mem-slop/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ericrisco/mem-slop/compare/v1.0.0...v1.1.0
